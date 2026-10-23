@@ -134,6 +134,10 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`VoltPulse IoT Server running on http://0.0.0.0:${PORT}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`VoltPulse IoT Server running on http://0.0.0.0:${PORT}`);
+  });
+}
+
+export default app;
