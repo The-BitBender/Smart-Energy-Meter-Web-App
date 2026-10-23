@@ -1,0 +1,78 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isMeterOwner(meterId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/meters/$(meterId)) &&
+        get(/databases/$(database)/documents/meters/$(meterId)).data.ownerUid == request.auth.uid;
+    }
+
+    // User profile document & settings subcollection
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.email is string;
+      allow delete: if isOwner(userId);
+
+      match /settings/{settingId} {
+        allow read, write: if isValidId(settingId) && isOwner(userId);
+      }
+    }
+
+    // Meters collection
+    match /meters/{meterId} {
+      allow get: if isValidId(meterId) && isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow create: if isValidId(meterId) && isSignedIn() &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() <= 128 &&
+        request.resource.data.relayState in ['ON', 'OFF'];
+      allow update: if isValidId(meterId) && isSignedIn() &&
+        resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.ownerUid == resource.data.ownerUid &&
+        (!('relayState' in request.resource.data) || request.resource.data.relayState in ['ON', 'OFF']);
+      allow delete: if isValidId(meterId) && isSignedIn() && resource.data.ownerUid == request.auth.uid;
+
+      // Telemetry logs subcollection
+      match /telemetry/{telemetryId} {
+        allow get: if isValidId(meterId) && isValidId(telemetryId) && isMeterOwner(meterId);
+        allow list: if isValidId(meterId) && isMeterOwner(meterId);
+        allow create: if isValidId(meterId) && isValidId(telemetryId) &&
+          isSignedIn() && (request.resource.data.ownerUid == request.auth.uid || isMeterOwner(meterId));
+        allow update, delete: if isValidId(meterId) && isValidId(telemetryId) && isMeterOwner(meterId);
+      }
+
+      // Anomalies subcollection
+      match /anomalies/{anomalyId} {
+        allow get: if isValidId(meterId) && isValidId(anomalyId) && isMeterOwner(meterId);
+        allow list: if isValidId(meterId) && isMeterOwner(meterId);
+        allow create: if isValidId(meterId) && isValidId(anomalyId) &&
+          isSignedIn() && (request.resource.data.ownerUid == request.auth.uid || isMeterOwner(meterId));
+        allow update: if isValidId(meterId) && isValidId(anomalyId) && isMeterOwner(meterId) &&
+          request.resource.data.status in ['ACTIVE', 'RESOLVED', 'ACKNOWLEDGED'];
+        allow delete: if isValidId(meterId) && isValidId(anomalyId) && isMeterOwner(meterId);
+      }
+    }
+  }
+}

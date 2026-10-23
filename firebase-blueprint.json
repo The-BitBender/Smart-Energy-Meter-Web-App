@@ -1,0 +1,126 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with authentication and identity metadata",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "photoURL": { "type": "string", "maxLength": 512 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["uid", "email"]
+    },
+    "NotificationPreferences": {
+      "title": "NotificationPreferences",
+      "description": "User email alert configuration for critical electrical anomalies and theft events",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "emailAlertsEnabled": { "type": "boolean" },
+        "alertEmail": { "type": "string", "format": "email", "maxLength": 128 },
+        "notifyCriticalTheft": { "type": "boolean" },
+        "notifyOvercurrentSurge": { "type": "boolean" },
+        "notifyVoltageSag": { "type": "boolean" },
+        "notifyOfflineHeartbeat": { "type": "boolean" },
+        "minimumSeverity": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["userId", "emailAlertsEnabled", "alertEmail"]
+    },
+    "Meter": {
+      "title": "Meter",
+      "description": "IoT ESP32 Smart Energy Meter unit registered to a user account",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "meterId": { "type": "string", "maxLength": 64 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "relayState": { "type": "string", "enum": ["ON", "OFF"] },
+        "status": { "type": "string", "enum": ["ONLINE", "OFFLINE"] },
+        "apiKey": { "type": "string", "maxLength": 128 },
+        "lastHeartbeat": { "type": "string", "maxLength": 64 },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "address": { "type": "string", "maxLength": 256 },
+        "voltage": { "type": "number" },
+        "current": { "type": "number" },
+        "activePower": { "type": "number" },
+        "reactivePower": { "type": "number" },
+        "powerFactor": { "type": "number" },
+        "frequency": { "type": "number" },
+        "totalEnergy": { "type": "number" },
+        "hasAnomaly": { "type": "boolean" },
+        "anomalyType": { "type": "string", "maxLength": 64 },
+        "anomalySeverity": { "type": "string", "maxLength": 32 },
+        "anomalyDescription": { "type": "string", "maxLength": 256 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["meterId", "ownerUid", "name", "relayState", "status"]
+    },
+    "TelemetryLog": {
+      "title": "TelemetryLog",
+      "description": "Granular time-series sensor data points ingested from ESP32",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "meterId": { "type": "string", "maxLength": 64 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "voltage": { "type": "number" },
+        "current": { "type": "number" },
+        "activePower": { "type": "number" },
+        "reactivePower": { "type": "number" },
+        "powerFactor": { "type": "number" },
+        "frequency": { "type": "number" },
+        "energy": { "type": "number" },
+        "relayState": { "type": "string", "enum": ["ON", "OFF"] },
+        "hasAnomaly": { "type": "boolean" },
+        "timestamp": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["meterId", "ownerUid", "voltage", "current", "activePower", "energy", "timestamp"]
+    },
+    "AnomalyAlert": {
+      "title": "AnomalyAlert",
+      "description": "Detected electrical anomalies, theft alerts, or suspicious patterns",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "meterId": { "type": "string", "maxLength": 64 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "maxLength": 64 },
+        "severity": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "title": { "type": "string", "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 512 },
+        "status": { "type": "string", "enum": ["ACTIVE", "RESOLVED", "ACKNOWLEDGED"] },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["meterId", "ownerUid", "type", "severity", "title", "description", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles restricted to account owner"
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": "NotificationPreferences",
+      "description": "User notification preferences and email alert toggle settings"
+    },
+    "/meters/{meterId}": {
+      "schema": "Meter",
+      "description": "Smart meters belonging to the authorized user account"
+    },
+    "/meters/{meterId}/telemetry/{telemetryId}": {
+      "schema": "TelemetryLog",
+      "description": "Time-series power, voltage, current and energy readings for each meter"
+    },
+    "/meters/{meterId}/anomalies/{anomalyId}": {
+      "schema": "AnomalyAlert",
+      "description": "Logged anomaly alerts and theft warnings for the meter"
+    }
+  }
+}

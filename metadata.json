@@ -1,0 +1,6 @@
+{
+  "name": "VoltPulse IoT - Smart ESP32 Energy Meter & Theft Detection",
+  "description": "Full-stack IoT energy monitoring platform for ESP32 meters with real-time telemetry, remote relay control, GPS mapping, and theft anomaly detection.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
