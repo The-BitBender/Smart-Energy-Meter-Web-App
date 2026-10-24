@@ -3,6 +3,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/telemetry/ingest",
+      "destination": "/api/telemetry/ingest"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/index"
     },

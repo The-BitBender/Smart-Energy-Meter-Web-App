@@ -1,12 +1,9 @@
 import express from 'express';
-import { activeMeters, anomalyStore, processTelemetryIngest, telemetryStore, userPreferencesStore } from '../src/server/telemetryHandler';
-import type { Meter, NotificationPreferences } from '../src/types/energy';
 
 const app = express();
-
 app.use(express.json());
 
-// CORS & Preflight handling
+// CORS & Preflight
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -26,14 +23,45 @@ app.use((req, res, next) => {
   next();
 });
 
-// Helper to seed initial demo meter if cache is empty
-function ensureDemoMeters() {
+// Types & In-Memory Stores
+export interface MeterData {
+  id: string;
+  meterId: string;
+  ownerUid: string;
+  name: string;
+  relayState: 'ON' | 'OFF';
+  status: 'ONLINE' | 'OFFLINE';
+  apiKey: string;
+  lastHeartbeat: string;
+  latitude: number;
+  longitude: number;
+  address: string;
+  voltage: number;
+  current: number;
+  activePower: number;
+  reactivePower: number;
+  powerFactor: number;
+  frequency: number;
+  totalEnergy: number;
+  hasAnomaly: boolean;
+  anomalyType: string;
+  anomalySeverity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  anomalyDescription: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const activeMeters = new Map<string, MeterData>();
+const telemetryStore = new Map<string, any[]>();
+const anomalyStore = new Map<string, any[]>();
+const userPreferencesStore = new Map<string, any>();
+
+function seedDemoData() {
   if (activeMeters.size > 0) return;
-
-  const demoMeterId = 'ESP32-MTR-8842';
   const now = Date.now();
+  const demoMeterId = 'ESP32-MTR-8842';
 
-  const demoMeter: Meter = {
+  const demoMeter: MeterData = {
     id: demoMeterId,
     meterId: demoMeterId,
     ownerUid: 'demo_user',
@@ -61,37 +89,183 @@ function ensureDemoMeters() {
   };
 
   activeMeters.set(demoMeterId, demoMeter);
+
+  userPreferencesStore.set('demo_user', {
+    userId: 'demo_user',
+    emailAlertsEnabled: true,
+    alertEmail: 'yinkusben4sure@gmail.com',
+    notifyCriticalTheft: true,
+    notifyOvercurrentSurge: true,
+    notifyVoltageSag: true,
+    notifyOfflineHeartbeat: false,
+    minimumSeverity: 'HIGH',
+    updatedAt: new Date(now).toISOString(),
+  });
 }
 
-// 1. Health check
+seedDemoData();
+
+// 1. Health
 app.get(['/api/health', '/health'], (req, res) => {
-  ensureDemoMeters();
+  seedDemoData();
   res.json({
     status: 'online',
-    system: 'VoltPulse IoT Ingestion Engine (Vercel Serverless)',
+    system: 'VoltPulse IoT Production Serverless Router',
     activeMetersCount: activeMeters.size,
     timestamp: new Date().toISOString(),
   });
 });
 
-// 2. Telemetry ingestion from physical ESP32 or simulator
+// 2. Telemetry Ingest
 app.post(['/api/telemetry/ingest', '/telemetry/ingest'], (req, res) => {
   try {
-    ensureDemoMeters();
+    seedDemoData();
     const payload = req.body || {};
-    const apiKey = (req.headers['x-api-key'] as string) || payload.apiKey;
-    if (apiKey) payload.apiKey = apiKey;
+    const meterId = payload.meterId?.trim();
+    if (!meterId) {
+      return res.status(400).json({ error: 'meterId is required' });
+    }
 
-    const result = processTelemetryIngest(payload);
-    res.json(result);
+    const apiKey = (req.headers['x-api-key'] as string) || payload.apiKey;
+    const now = new Date().toISOString();
+
+    const voltage = Number(payload.voltage) || 230.0;
+    const current = Number(payload.current) || 0.0;
+    const powerFactor = payload.powerFactor !== undefined ? Number(payload.powerFactor) : 0.96;
+    const activePower = payload.activePower !== undefined ? Number(payload.activePower) : Math.round(voltage * current * powerFactor * 10) / 10;
+    
+    const apparent = voltage * current;
+    let reactivePower = payload.reactivePower !== undefined ? Number(payload.reactivePower) : 0;
+    if (payload.reactivePower === undefined && apparent >= Math.abs(activePower)) {
+      reactivePower = Math.round(Math.sqrt(Math.max(0, apparent * apparent - activePower * activePower)) * 10) / 10;
+    }
+
+    const frequency = Number(payload.frequency) || 50.0;
+    let meter = activeMeters.get(meterId);
+    const relayState = payload.relayState || (meter ? meter.relayState : 'ON');
+    const energy = payload.energy !== undefined ? Number(payload.energy) : (meter ? Math.round((meter.totalEnergy + 0.005) * 1000) / 1000 : 12.45);
+
+    let hasAnomaly = false;
+    let anomalyType = 'NONE';
+    let anomalySeverity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'LOW';
+    let anomalyDesc = 'Operating normally';
+    let recommendation = 'Routine periodic monitoring active.';
+
+    if (relayState === 'OFF' && (current > 0.8 || Math.abs(activePower) > 100)) {
+      hasAnomaly = true;
+      anomalyType = 'UNMETERED_BYPASS';
+      anomalySeverity = 'CRITICAL';
+      anomalyDesc = `Current of ${current.toFixed(2)}A detected while relay is OFF`;
+      recommendation = 'Check physical wiring across relay contacts.';
+    } else if (current > 42 || activePower > 9500) {
+      hasAnomaly = true;
+      anomalyType = 'SURGE_SPIKE';
+      anomalySeverity = 'CRITICAL';
+      anomalyDesc = `Current ${current.toFixed(1)}A exceeds residential service limit`;
+      recommendation = 'Switch off high-draw loads immediately.';
+    } else if (voltage < 190 && current > 20) {
+      hasAnomaly = true;
+      anomalyType = 'VOLTAGE_DROP_HIGH_DRAW';
+      anomalySeverity = 'HIGH';
+      anomalyDesc = `Severe voltage sag ${voltage.toFixed(1)}V under load`;
+      recommendation = 'Check feeder cable.';
+    }
+
+    if (!meter) {
+      meter = {
+        id: meterId,
+        meterId,
+        ownerUid: payload.ownerUid || 'demo_user',
+        name: payload.name || `ESP32 Meter ${meterId}`,
+        relayState,
+        status: 'ONLINE',
+        apiKey: apiKey || `VP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+        lastHeartbeat: now,
+        latitude: payload.latitude !== undefined ? Number(payload.latitude) : 6.5244,
+        longitude: payload.longitude !== undefined ? Number(payload.longitude) : 3.3792,
+        address: payload.address || 'Smart Grid Connection Point',
+        voltage,
+        current,
+        activePower,
+        reactivePower,
+        powerFactor,
+        frequency,
+        totalEnergy: energy,
+        hasAnomaly,
+        anomalyType,
+        anomalySeverity,
+        anomalyDescription: anomalyDesc,
+        createdAt: now,
+        updatedAt: now,
+      };
+    } else {
+      meter.voltage = voltage;
+      meter.current = current;
+      meter.activePower = activePower;
+      meter.reactivePower = reactivePower;
+      meter.powerFactor = powerFactor;
+      meter.frequency = frequency;
+      meter.totalEnergy = energy;
+      meter.relayState = relayState;
+      meter.status = 'ONLINE';
+      meter.lastHeartbeat = now;
+      meter.updatedAt = now;
+      if (apiKey) meter.apiKey = apiKey;
+      meter.hasAnomaly = hasAnomaly;
+      meter.anomalyType = anomalyType;
+      meter.anomalySeverity = anomalySeverity;
+      meter.anomalyDescription = anomalyDesc;
+    }
+
+    activeMeters.set(meterId, meter);
+
+    const logId = `TL-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const log = {
+      id: logId,
+      meterId,
+      ownerUid: meter.ownerUid,
+      voltage,
+      current,
+      activePower,
+      reactivePower,
+      powerFactor,
+      frequency,
+      energy,
+      relayState: meter.relayState,
+      hasAnomaly,
+      timestamp: now,
+    };
+
+    const meterLogs = telemetryStore.get(meterId) || [];
+    meterLogs.push(log);
+    if (meterLogs.length > 200) meterLogs.shift();
+    telemetryStore.set(meterId, meterLogs);
+
+    res.json({
+      success: true,
+      meterId,
+      relayState: meter.relayState,
+      anomalyDetected: hasAnomaly,
+      anomaly: {
+        hasAnomaly,
+        type: anomalyType,
+        severity: anomalySeverity,
+        title: hasAnomaly ? anomalyType : 'Optimal Grid Operation',
+        description: anomalyDesc,
+        recommendation,
+      },
+      meter,
+      log,
+      timestamp: now,
+    });
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Ingestion failed' });
+    res.status(500).json({ error: err?.message || 'Ingest failed' });
   }
 });
 
-// 3. Fast relay polling for ESP32
+// 3. Relay status fast poll
 app.get(['/api/meters/:meterId/relay-status', '/meters/:meterId/relay-status'], (req, res) => {
-  ensureDemoMeters();
+  seedDemoData();
   const meter = activeMeters.get(req.params.meterId);
   res.json({
     meterId: req.params.meterId,
@@ -102,7 +276,7 @@ app.get(['/api/meters/:meterId/relay-status', '/meters/:meterId/relay-status'], 
 
 // 4. Remote relay toggle
 app.post(['/api/meters/:meterId/relay', '/meters/:meterId/relay'], (req, res) => {
-  ensureDemoMeters();
+  seedDemoData();
   const meter = activeMeters.get(req.params.meterId);
   if (!meter) return res.status(404).json({ error: 'Meter not found' });
   if (req.body.relayState !== 'ON' && req.body.relayState !== 'OFF') {
@@ -114,15 +288,15 @@ app.post(['/api/meters/:meterId/relay', '/meters/:meterId/relay'], (req, res) =>
   res.json({ success: true, meterId: meter.meterId, relayState: meter.relayState });
 });
 
-// 5. Meters list & register
+// 5. Meters listing & creation
 app.get(['/api/meters', '/meters'], (req, res) => {
-  ensureDemoMeters();
+  seedDemoData();
   res.json({ meters: Array.from(activeMeters.values()) });
 });
 
 app.post(['/api/meters', '/meters'], (req, res) => {
   try {
-    ensureDemoMeters();
+    seedDemoData();
     const body = req.body || {};
     const meterId = body.meterId?.trim();
     if (!meterId) {
@@ -130,7 +304,7 @@ app.post(['/api/meters', '/meters'], (req, res) => {
     }
 
     const now = new Date().toISOString();
-    const newMeter: Meter = {
+    const newMeter: MeterData = {
       id: meterId,
       meterId,
       ownerUid: body.ownerUid || 'demo_user',
@@ -141,12 +315,12 @@ app.post(['/api/meters', '/meters'], (req, res) => {
       lastHeartbeat: now,
       latitude: Number(body.latitude) || 6.5244,
       longitude: Number(body.longitude) || 3.3792,
-      address: body.address || 'Victoria Island Substation 4, Lagos',
+      address: body.address || 'Smart Grid Connection Point',
       voltage: Number(body.voltage) || 230.0,
       current: Number(body.current) || 0.0,
       activePower: Number(body.activePower) || 0.0,
       reactivePower: Number(body.reactivePower) || 0.0,
-      powerFactor: Number(body.powerFactor) || 0.96,
+      powerFactor: Number(body.powerFactor) || 0.98,
       frequency: Number(body.frequency) || 50.0,
       totalEnergy: Number(body.totalEnergy) || 0.0,
       hasAnomaly: false,
@@ -165,39 +339,43 @@ app.post(['/api/meters', '/meters'], (req, res) => {
 });
 
 app.get(['/api/meters/:meterId', '/meters/:meterId'], (req, res) => {
-  ensureDemoMeters();
+  seedDemoData();
   const meter = activeMeters.get(req.params.meterId);
   if (!meter) return res.status(404).json({ error: 'Meter not found' });
   res.json({ meter });
 });
 
-// 6. Telemetry history
-app.get(['/api/telemetry/history', '/telemetry/history'], (req, res) => {
-  ensureDemoMeters();
-  const meterId = req.query.meterId as string;
-  if (!meterId) {
-    const all = Array.from(telemetryStore.values()).flat();
-    return res.json({ logs: all.slice(-100) });
-  }
-  const logs = telemetryStore.get(meterId) || [];
+// 6. Telemetry History
+app.get(['/api/meters/:meterId/telemetry', '/meters/:meterId/telemetry'], (req, res) => {
+  const logs = telemetryStore.get(req.params.meterId) || [];
   res.json({ logs });
 });
 
-// 7. Anomalies list
-app.get(['/api/anomalies', '/anomalies'], (req, res) => {
-  ensureDemoMeters();
-  const meterId = req.query.meterId as string;
-  if (meterId) {
-    return res.json({ anomalies: anomalyStore.get(meterId) || [] });
+app.get(['/api/meters/:meterId/anomalies', '/meters/:meterId/anomalies'], (req, res) => {
+  const alerts = anomalyStore.get(req.params.meterId) || [];
+  res.json({ alerts });
+});
+
+// 7. Resolve Anomaly
+app.post(['/api/meters/:meterId/anomalies/:alertId/resolve', '/meters/:meterId/anomalies/:alertId/resolve'], (req, res) => {
+  const { meterId, alertId } = req.params;
+  const alerts = anomalyStore.get(meterId) || [];
+  const alert = alerts.find(a => a.id === alertId);
+  if (alert) alert.status = 'RESOLVED';
+  const meter = activeMeters.get(meterId);
+  if (meter && alerts.filter(a => a.status === 'ACTIVE').length === 0) {
+    meter.hasAnomaly = false;
+    meter.anomalyType = 'NONE';
+    meter.anomalySeverity = 'LOW';
+    meter.anomalyDescription = 'Operating normally';
   }
-  const all = Array.from(anomalyStore.values()).flat();
-  res.json({ anomalies: all });
+  res.json({ success: true, alert });
 });
 
-// 8. User preferences
-app.get(['/api/preferences', '/preferences'], (req, res) => {
-  const userId = (req.query.userId as string) || 'demo_user';
-  const prefs = userPreferencesStore.get(userId) || {
+// 8. User Settings
+app.get(['/api/users/:userId/settings', '/users/:userId/settings'], (req, res) => {
+  const userId = req.params.userId;
+  const preferences = userPreferencesStore.get(userId) || userPreferencesStore.get('demo_user') || {
     userId,
     emailAlertsEnabled: true,
     alertEmail: 'yinkusben4sure@gmail.com',
@@ -208,44 +386,39 @@ app.get(['/api/preferences', '/preferences'], (req, res) => {
     minimumSeverity: 'HIGH',
     updatedAt: new Date().toISOString(),
   };
-  res.json({ preferences: prefs });
+  res.json({ preferences });
 });
 
-app.post(['/api/preferences', '/preferences'], (req, res) => {
+app.post(['/api/users/:userId/settings', '/users/:userId/settings'], (req, res) => {
+  const userId = req.params.userId;
   const body = req.body || {};
-  const userId = body.userId || 'demo_user';
-  const existing = userPreferencesStore.get(userId) || {
+  const preferences = {
     userId,
-    emailAlertsEnabled: true,
-    alertEmail: 'yinkusben4sure@gmail.com',
-    notifyCriticalTheft: true,
-    notifyOvercurrentSurge: true,
-    notifyVoltageSag: true,
-    notifyOfflineHeartbeat: false,
-    minimumSeverity: 'HIGH',
+    emailAlertsEnabled: body.emailAlertsEnabled !== undefined ? Boolean(body.emailAlertsEnabled) : true,
+    alertEmail: body.alertEmail || 'yinkusben4sure@gmail.com',
+    notifyCriticalTheft: body.notifyCriticalTheft !== undefined ? Boolean(body.notifyCriticalTheft) : true,
+    notifyOvercurrentSurge: body.notifyOvercurrentSurge !== undefined ? Boolean(body.notifyOvercurrentSurge) : true,
+    notifyVoltageSag: body.notifyVoltageSag !== undefined ? Boolean(body.notifyVoltageSag) : true,
+    notifyOfflineHeartbeat: body.notifyOfflineHeartbeat !== undefined ? Boolean(body.notifyOfflineHeartbeat) : false,
+    minimumSeverity: body.minimumSeverity || 'HIGH',
     updatedAt: new Date().toISOString(),
   };
-
-  const preferences: NotificationPreferences = {
-    ...existing,
-    ...body,
-    userId,
-    updatedAt: new Date().toISOString(),
-  };
-
   userPreferencesStore.set(userId, preferences);
   res.json({ success: true, preferences });
 });
 
-// Catch-all for API 404 (always JSON)
+// Catch-all API 404 (always return JSON)
 app.all('*', (req, res) => {
-  res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl || req.url}` });
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
 });
 
-// Global API error handler (always JSON)
+// Global API error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('[Vercel API Error]', err);
+  console.error('[API Router Error]', err);
   res.status(500).json({ error: err?.message || 'Internal server error' });
 });
 
-export default app;
+// Export default handler function compatible with both Vercel serverless and Express
+export default function handler(req: any, res: any) {
+  return app(req, res);
+}
