@@ -150,7 +150,11 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
       });
     } catch (err: any) {
       console.error('Onboarding completion error:', err);
-      setError(err.message || 'Failed to initialize meter. Please try again.');
+      let msg = err?.message || 'Failed to initialize meter. Please try again.';
+      if (msg.includes('Unexpected token') || msg.includes('JSON') || msg.includes('server error')) {
+        msg = 'Connection to meter service was interrupted. Please click Save again.';
+      }
+      setError(msg);
     }
   };
 

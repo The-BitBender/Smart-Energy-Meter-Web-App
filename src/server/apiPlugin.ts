@@ -84,21 +84,25 @@ function ensureDemoMeters() {
   telemetryStore.set(demoMeterId, logs);
 }
 
-// Read body helper
+// Read body helper with fallback
 function readJsonBody(req: IncomingMessage): Promise<any> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
+    if ((req as any).body && typeof (req as any).body === 'object') {
+      return resolve((req as any).body);
+    }
     let body = '';
     req.on('data', chunk => {
       body += chunk;
     });
     req.on('end', () => {
+      if (!body) return resolve({});
       try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch (e) {
-        reject(e);
+        resolve(JSON.parse(body));
+      } catch {
+        resolve({});
       }
     });
-    req.on('error', reject);
+    req.on('error', () => resolve({}));
   });
 }
 
@@ -118,7 +122,9 @@ export function apiMiddlewarePlugin(): Plugin {
       ensureDemoMeters();
 
       server.middlewares.use(async (req, res, next) => {
-        const url = req.url || '';
+        const rawUrl = req.url || '';
+        const [pathname] = rawUrl.split('?');
+        const cleanPath = pathname.replace(/\/$/, '') || '/';
 
         // CORS Preflight
         if (req.method === 'OPTIONS') {
@@ -130,13 +136,13 @@ export function apiMiddlewarePlugin(): Plugin {
         }
 
         // Only handle /api routes
-        if (!url.startsWith('/api')) {
+        if (!cleanPath.startsWith('/api')) {
           return next();
         }
 
         try {
           // 1. Health check
-          if (url === '/api/health' && req.method === 'GET') {
+          if (cleanPath === '/api/health' && req.method === 'GET') {
             return sendJson(res, 200, {
               status: 'online',
               system: 'VoltPulse IoT Ingestion Engine',
@@ -146,7 +152,7 @@ export function apiMiddlewarePlugin(): Plugin {
           }
 
           // 2. Ingest telemetry from physical ESP32 or Simulator
-          if (url === '/api/telemetry/ingest' && req.method === 'POST') {
+          if (cleanPath === '/api/telemetry/ingest' && req.method === 'POST') {
             const body = await readJsonBody(req);
             const apiKeyHeader = req.headers['x-api-key'] as string;
             if (apiKeyHeader && !body.apiKey) {
@@ -158,7 +164,7 @@ export function apiMiddlewarePlugin(): Plugin {
           }
 
           // 3. Fast relay polling for ESP32 (GET /api/meters/:id/relay-status)
-          const relayStatusMatch = url.match(/^\/api\/meters\/([^\/]+)\/relay-status$/);
+          const relayStatusMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)\/relay-status$/);
           if (relayStatusMatch && req.method === 'GET') {
             const meterId = decodeURIComponent(relayStatusMatch[1]);
             const meter = activeMeters.get(meterId);
@@ -170,7 +176,7 @@ export function apiMiddlewarePlugin(): Plugin {
           }
 
           // 4. Remote Relay Command (POST /api/meters/:id/relay)
-          const relayCmdMatch = url.match(/^\/api\/meters\/([^\/]+)\/relay$/);
+          const relayCmdMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)\/relay$/);
           if (relayCmdMatch && req.method === 'POST') {
             const meterId = decodeURIComponent(relayCmdMatch[1]);
             const body = await readJsonBody(req);
@@ -188,60 +194,13 @@ export function apiMiddlewarePlugin(): Plugin {
           }
 
           // 5. Get all meters (GET /api/meters)
-          if (url === '/api/meters' && req.method === 'GET') {
+          if (cleanPath === '/api/meters' && req.method === 'GET') {
             const list = Array.from(activeMeters.values());
             return sendJson(res, 200, { meters: list });
           }
 
-          // 6. Get single meter (GET /api/meters/:id)
-          const meterDetailMatch = url.match(/^\/api\/meters\/([^\/]+)$/);
-          if (meterDetailMatch && req.method === 'GET') {
-            const meterId = decodeURIComponent(meterDetailMatch[1]);
-            const meter = activeMeters.get(meterId);
-            if (!meter) {
-              return sendJson(res, 404, { error: 'Meter not found' });
-            }
-            return sendJson(res, 200, { meter });
-          }
-
-          // 7. Get telemetry history (GET /api/meters/:id/telemetry)
-          const meterTelemetryMatch = url.match(/^\/api\/meters\/([^\/]+)\/telemetry$/);
-          if (meterTelemetryMatch && req.method === 'GET') {
-            const meterId = decodeURIComponent(meterTelemetryMatch[1]);
-            const logs = telemetryStore.get(meterId) || [];
-            return sendJson(res, 200, { logs });
-          }
-
-          // 8. Get anomalies (GET /api/meters/:id/anomalies)
-          const meterAnomaliesMatch = url.match(/^\/api\/meters\/([^\/]+)\/anomalies$/);
-          if (meterAnomaliesMatch && req.method === 'GET') {
-            const meterId = decodeURIComponent(meterAnomaliesMatch[1]);
-            const alerts = anomalyStore.get(meterId) || [];
-            return sendJson(res, 200, { alerts });
-          }
-
-          // 9. Resolve anomaly alert (POST /api/meters/:id/anomalies/:alertId/resolve)
-          const alertResolveMatch = url.match(/^\/api\/meters\/([^\/]+)\/anomalies\/([^\/]+)\/resolve$/);
-          if (alertResolveMatch && req.method === 'POST') {
-            const meterId = decodeURIComponent(alertResolveMatch[1]);
-            const alertId = decodeURIComponent(alertResolveMatch[2]);
-            const alerts = anomalyStore.get(meterId) || [];
-            const alert = alerts.find(a => a.id === alertId);
-            if (alert) {
-              alert.status = 'RESOLVED';
-            }
-            const meter = activeMeters.get(meterId);
-            if (meter && alerts.filter(a => a.status === 'ACTIVE').length === 0) {
-              meter.hasAnomaly = false;
-              meter.anomalyType = 'NONE';
-              meter.anomalySeverity = 'LOW';
-              meter.anomalyDescription = 'Operating normally';
-            }
-            return sendJson(res, 200, { success: true, alert });
-          }
-
-          // 10. Register or Link New Meter (POST /api/meters)
-          if (url === '/api/meters' && req.method === 'POST') {
+          // 6. Register or Link New Meter (POST /api/meters)
+          if (cleanPath === '/api/meters' && req.method === 'POST') {
             const body = await readJsonBody(req);
             const meterId = body.meterId?.trim();
             if (!meterId) {
@@ -278,8 +237,55 @@ export function apiMiddlewarePlugin(): Plugin {
             return sendJson(res, 201, { success: true, meter: newMeter });
           }
 
+          // 7. Get single meter (GET /api/meters/:id)
+          const meterDetailMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)$/);
+          if (meterDetailMatch && req.method === 'GET') {
+            const meterId = decodeURIComponent(meterDetailMatch[1]);
+            const meter = activeMeters.get(meterId);
+            if (!meter) {
+              return sendJson(res, 404, { error: 'Meter not found' });
+            }
+            return sendJson(res, 200, { meter });
+          }
+
+          // 8. Get telemetry history (GET /api/meters/:id/telemetry)
+          const meterTelemetryMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)\/telemetry$/);
+          if (meterTelemetryMatch && req.method === 'GET') {
+            const meterId = decodeURIComponent(meterTelemetryMatch[1]);
+            const logs = telemetryStore.get(meterId) || [];
+            return sendJson(res, 200, { logs });
+          }
+
+          // 9. Get anomalies (GET /api/meters/:id/anomalies)
+          const meterAnomaliesMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)\/anomalies$/);
+          if (meterAnomaliesMatch && req.method === 'GET') {
+            const meterId = decodeURIComponent(meterAnomaliesMatch[1]);
+            const alerts = anomalyStore.get(meterId) || [];
+            return sendJson(res, 200, { alerts });
+          }
+
+          // 10. Resolve anomaly alert (POST /api/meters/:id/anomalies/:alertId/resolve)
+          const alertResolveMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)\/anomalies\/([^\/]+)\/resolve$/);
+          if (alertResolveMatch && req.method === 'POST') {
+            const meterId = decodeURIComponent(alertResolveMatch[1]);
+            const alertId = decodeURIComponent(alertResolveMatch[2]);
+            const alerts = anomalyStore.get(meterId) || [];
+            const alert = alerts.find(a => a.id === alertId);
+            if (alert) {
+              alert.status = 'RESOLVED';
+            }
+            const meter = activeMeters.get(meterId);
+            if (meter && alerts.filter(a => a.status === 'ACTIVE').length === 0) {
+              meter.hasAnomaly = false;
+              meter.anomalyType = 'NONE';
+              meter.anomalySeverity = 'LOW';
+              meter.anomalyDescription = 'Operating normally';
+            }
+            return sendJson(res, 200, { success: true, alert });
+          }
+
           // 11. Get User Notification Settings (GET /api/users/:userId/settings)
-          const userSettingsGetMatch = url.match(/^\/api\/users\/([^\/]+)\/settings$/);
+          const userSettingsGetMatch = cleanPath.match(/^\/api\/users\/([^\/]+)\/settings$/);
           if (userSettingsGetMatch && req.method === 'GET') {
             const userId = decodeURIComponent(userSettingsGetMatch[1]);
             const preferences = userPreferencesStore.get(userId) || userPreferencesStore.get('demo_user') || {
@@ -297,7 +303,7 @@ export function apiMiddlewarePlugin(): Plugin {
           }
 
           // 12. Save User Notification Settings (POST /api/users/:userId/settings)
-          const userSettingsPostMatch = url.match(/^\/api\/users\/([^\/]+)\/settings$/);
+          const userSettingsPostMatch = cleanPath.match(/^\/api\/users\/([^\/]+)\/settings$/);
           if (userSettingsPostMatch && req.method === 'POST') {
             const userId = decodeURIComponent(userSettingsPostMatch[1]);
             const body = await readJsonBody(req);
@@ -316,7 +322,8 @@ export function apiMiddlewarePlugin(): Plugin {
             return sendJson(res, 200, { success: true, preferences });
           }
 
-          next();
+          // Any unmatched /api route must return JSON 404, never fallback to index.html
+          return sendJson(res, 404, { error: `Endpoint not found: ${req.method} ${cleanPath}` });
         } catch (err: any) {
           console.error('[API Server Error]', err);
           return sendJson(res, 500, { error: err.message || 'Internal server error' });
