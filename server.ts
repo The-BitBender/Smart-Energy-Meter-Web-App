@@ -1,8 +1,8 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { activeMeters, anomalyStore, processTelemetryIngest, telemetryStore, userPreferencesStore } from './src/server/telemetryHandler.js';
-import type { NotificationPreferences } from './src/types/energy.js';
+import { activeMeters, anomalyStore, processTelemetryIngest, telemetryStore, userPreferencesStore } from './src/server/telemetryHandler';
+import type { NotificationPreferences } from './src/types/energy';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -292,7 +292,8 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 
-if (!process.env.VERCEL) {
+const isDirectRun = Boolean(process.argv[1] && (process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.js')));
+if (isDirectRun && !process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`VoltPulse IoT Server running on http://0.0.0.0:${PORT}`);
   });
