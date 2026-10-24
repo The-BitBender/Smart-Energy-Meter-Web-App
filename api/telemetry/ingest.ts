@@ -192,6 +192,38 @@ function sendResponse(res: any, statusCode: number, data: any) {
   res.end(JSON.stringify(data));
 }
 
+function seedInitialDemoMeter() {
+  if (globalMeters.size > 0) return;
+  const now = new Date().toISOString();
+  const demoMeterId = 'ESP32-MTR-8842';
+  globalMeters.set(demoMeterId, {
+    id: demoMeterId,
+    meterId: demoMeterId,
+    ownerUid: 'demo_user',
+    name: 'Main Feeder Panel - Workshop A',
+    relayState: 'ON',
+    status: 'ONLINE',
+    apiKey: 'VP-8842-SECURE-KEY',
+    lastHeartbeat: now,
+    latitude: 6.5244,
+    longitude: 3.3792,
+    address: 'Plot 12 Commercial Way, Industrial Estate, Lagos',
+    voltage: 231.8,
+    current: 14.6,
+    activePower: 3315.0,
+    reactivePower: 410.0,
+    powerFactor: 0.98,
+    frequency: 50.02,
+    totalEnergy: 148.62,
+    hasAnomaly: false,
+    anomalyType: 'NONE',
+    anomalySeverity: 'LOW',
+    anomalyDescription: 'Operating normally',
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
 // Default export: standard Vercel serverless function entrypoint
 export default async function handler(req: any, res: any) {
   // CORS preflight
@@ -204,8 +236,60 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
+  seedInitialDemoMeter();
+
+  // 1. GET requests: Query live meter status, logs, or list of meters
+  if (req.method === 'GET') {
+    try {
+      const host = req.headers.host || 'localhost';
+      const parsedUrl = new URL(req.url, `http://${host}`);
+      const queryMeterId = parsedUrl.searchParams.get('meterId')?.trim();
+      const action = parsedUrl.searchParams.get('action');
+      const isAll = parsedUrl.searchParams.get('all') === 'true' || (!queryMeterId && !action);
+
+      // Fast relay status poll for hardware ESP32
+      if (queryMeterId && action === 'relay_status') {
+        const meter = globalMeters.get(queryMeterId);
+        return sendResponse(res, 200, {
+          meterId: queryMeterId,
+          relayState: meter ? meter.relayState : 'ON',
+          status: meter ? meter.status : 'ONLINE',
+        });
+      }
+
+      // Query single meter live state and recent logs
+      if (queryMeterId && !isAll) {
+        const meter = globalMeters.get(queryMeterId);
+        const logs = globalLogs.get(queryMeterId) || [];
+        const alerts = globalAnomalies.get(queryMeterId) || [];
+        const latestLog = logs.length > 0 ? logs[logs.length - 1] : null;
+
+        return sendResponse(res, 200, {
+          success: true,
+          exists: !!meter,
+          meter: meter || null,
+          latestLog,
+          logs: logs.slice(-50),
+          alerts,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // Query all reporting meters
+      const allMeters = Array.from(globalMeters.values());
+      return sendResponse(res, 200, {
+        success: true,
+        meters: allMeters,
+        count: allMeters.length,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      return sendResponse(res, 500, { error: err?.message || 'Failed to query telemetry state' });
+    }
+  }
+
   if (req.method !== 'POST') {
-    return sendResponse(res, 405, { error: 'Method Not Allowed. Use POST.' });
+    return sendResponse(res, 405, { error: 'Method Not Allowed. Use GET or POST.' });
   }
 
   try {
@@ -215,15 +299,60 @@ export default async function handler(req: any, res: any) {
       return sendResponse(res, 400, { error: 'meterId is required in request body' });
     }
 
-    const apiKey = (req.headers['x-api-key'] as string) || (req.headers['x-api-key'] as string) || payload.apiKey;
     const now = new Date().toISOString();
+
+    // Check if this is a remote relay toggle command
+    if (payload.action === 'relay_toggle' || (payload.relayState && payload.voltage === undefined && payload.current === undefined)) {
+      let meter = globalMeters.get(meterId);
+      if (!meter) {
+        meter = {
+          id: meterId,
+          meterId,
+          ownerUid: payload.ownerUid || 'demo_user',
+          name: `ESP32 Meter ${meterId}`,
+          relayState: payload.relayState,
+          status: 'ONLINE',
+          apiKey: `VP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+          lastHeartbeat: now,
+          latitude: 6.5244,
+          longitude: 3.3792,
+          address: 'Smart Grid Connection Point',
+          voltage: 230.0,
+          current: 0.0,
+          activePower: 0.0,
+          reactivePower: 0.0,
+          powerFactor: 0.98,
+          frequency: 50.0,
+          totalEnergy: 0.0,
+          hasAnomaly: false,
+          anomalyType: 'NONE',
+          anomalySeverity: 'LOW',
+          anomalyDescription: 'System normal',
+          createdAt: now,
+          updatedAt: now,
+        };
+      } else {
+        meter.relayState = payload.relayState;
+        meter.updatedAt = now;
+      }
+      globalMeters.set(meterId, meter);
+
+      return sendResponse(res, 200, {
+        success: true,
+        meterId,
+        relayState: meter.relayState,
+        updatedAt: now,
+      });
+    }
+
+    const apiKey = (req.headers['x-api-key'] as string) || payload.apiKey;
 
     const voltage = Number(payload.voltage) || 230.0;
     const current = Number(payload.current) || 0.0;
     const powerFactor = payload.powerFactor !== undefined ? Number(payload.powerFactor) : 0.96;
     const activePower = payload.activePower !== undefined ? Number(payload.activePower) : Math.round(voltage * current * powerFactor * 10) / 10;
     
-    const apparentPower = voltage * current;
+    const apparentPower = Math.abs(voltage * current);
     let reactivePower = payload.reactivePower !== undefined ? Number(payload.reactivePower) : 0;
     if (payload.reactivePower === undefined && apparentPower >= Math.abs(activePower)) {
       reactivePower = Math.round(Math.sqrt(Math.max(0, (apparentPower * apparentPower) - (activePower * activePower))) * 10) / 10;
@@ -296,6 +425,7 @@ export default async function handler(req: any, res: any) {
       existingMeter.lastHeartbeat = now;
       existingMeter.updatedAt = now;
       if (apiKey) existingMeter.apiKey = apiKey;
+      if (payload.ownerUid && payload.ownerUid !== 'demo_user') existingMeter.ownerUid = payload.ownerUid;
       existingMeter.hasAnomaly = anomalyResult.hasAnomaly;
       existingMeter.anomalyType = anomalyResult.type;
       existingMeter.anomalySeverity = anomalyResult.severity;
@@ -362,6 +492,7 @@ export default async function handler(req: any, res: any) {
       anomaly: anomalyResult,
       meter: existingMeter,
       log,
+      telemetryLog: log,
       timestamp: now,
     });
   } catch (err: any) {

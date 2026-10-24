@@ -128,6 +128,37 @@ app.post('/api/telemetry/ingest', (req, res) => {
   }
 });
 
+// Fast telemetry query for live UI sync
+app.get('/api/telemetry/latest', (req, res) => {
+  ensureDemoMeters();
+  const meterId = (req.query.meterId as string)?.trim();
+  if (!meterId) {
+    return res.json({ success: true, meters: Array.from(activeMeters.values()) });
+  }
+  const meter = activeMeters.get(meterId) || null;
+  const logs = telemetryStore.get(meterId) || [];
+  const latestLog = logs.length > 0 ? logs[logs.length - 1] : null;
+  res.json({
+    success: true,
+    exists: !!meter,
+    meter,
+    latestLog,
+    logs: logs.slice(-50),
+    alerts: anomalyStore.get(meterId) || [],
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get('/api/telemetry/meters', (req, res) => {
+  ensureDemoMeters();
+  res.json({
+    success: true,
+    meters: Array.from(activeMeters.values()),
+    count: activeMeters.size,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Fast relay poll
 app.get('/api/meters/:meterId/relay-status', (req, res) => {
   const meter = activeMeters.get(req.params.meterId);

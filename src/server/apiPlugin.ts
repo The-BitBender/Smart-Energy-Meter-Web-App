@@ -159,8 +159,52 @@ export function apiMiddlewarePlugin(): Plugin {
               body.apiKey = apiKeyHeader;
             }
 
+            // Check if relay toggle command
+            if (body.action === 'relay_toggle' || (body.relayState && body.voltage === undefined && body.current === undefined)) {
+              let meter = activeMeters.get(body.meterId);
+              if (meter) {
+                meter.relayState = body.relayState;
+                meter.updatedAt = new Date().toISOString();
+                activeMeters.set(body.meterId, meter);
+              }
+              return sendJson(res, 200, { success: true, meterId: body.meterId, relayState: body.relayState });
+            }
+
             const result = processTelemetryIngest(body);
             return sendJson(res, 200, result);
+          }
+
+          // Fast telemetry query for live UI sync
+          if (cleanPath === '/api/telemetry/latest' && req.method === 'GET') {
+            ensureDemoMeters();
+            const host = req.headers.host || 'localhost';
+            const parsedUrl = new URL(rawUrl, `http://${host}`);
+            const meterId = parsedUrl.searchParams.get('meterId')?.trim();
+            if (!meterId) {
+              return sendJson(res, 200, { success: true, meters: Array.from(activeMeters.values()) });
+            }
+            const meter = activeMeters.get(meterId) || null;
+            const logs = telemetryStore.get(meterId) || [];
+            const latestLog = logs.length > 0 ? logs[logs.length - 1] : null;
+            return sendJson(res, 200, {
+              success: true,
+              exists: !!meter,
+              meter,
+              latestLog,
+              logs: logs.slice(-50),
+              alerts: anomalyStore.get(meterId) || [],
+              timestamp: new Date().toISOString(),
+            });
+          }
+
+          if (cleanPath === '/api/telemetry/meters' && req.method === 'GET') {
+            ensureDemoMeters();
+            return sendJson(res, 200, {
+              success: true,
+              meters: Array.from(activeMeters.values()),
+              count: activeMeters.size,
+              timestamp: new Date().toISOString(),
+            });
           }
 
           // 3. Fast relay polling for ESP32 (GET /api/meters/:id/relay-status)

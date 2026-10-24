@@ -93,32 +93,84 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Fetch meters from backend API (or Firestore)
+  // 2. Fetch meters from telemetry ingest endpoint & API
   const fetchBackendMeters = useCallback(async (currentUserId?: string) => {
     try {
-      const res = await fetch('/api/meters');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.meters && data.meters.length > 0) {
-          // If user is authenticated, filter to their meters or demo meters
-          const userMeters = currentUserId 
-            ? data.meters.filter((m: Meter) => m.ownerUid === currentUserId || m.ownerUid === 'demo_user')
-            : data.meters;
+      // First check telemetry ingest endpoint for hardware meters reporting live
+      let discoveredMeters: Meter[] = [];
+      try {
+        const telRes = await fetch('/api/telemetry/meters');
+        if (telRes.ok) {
+          const telData = await telRes.json();
+          if (telData.meters && Array.isArray(telData.meters)) {
+            discoveredMeters = telData.meters;
+          }
+        }
+      } catch (telErr) {
+        console.warn('Telemetry meters query notice:', telErr);
+      }
 
-          if (userMeters.length > 0) {
-            setMeters(userMeters);
-            setActiveMeter(prev => {
-              if (!prev) return userMeters[0];
-              const updated = userMeters.find((m: Meter) => m.meterId === prev.meterId);
-              return updated || userMeters[0];
+      // Also query standard /api/meters
+      try {
+        const apiRes = await fetch('/api/meters');
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          if (apiData.meters && Array.isArray(apiData.meters)) {
+            const existingIds = new Set(discoveredMeters.map(m => m.meterId));
+            apiData.meters.forEach((m: Meter) => {
+              if (!existingIds.has(m.meterId)) {
+                discoveredMeters.push(m);
+              }
             });
           }
         }
+      } catch (apiErr) {
+        console.warn('API meters query notice:', apiErr);
+      }
+
+      if (discoveredMeters.length > 0) {
+        setMeters((prevList) => {
+          const map = new Map<string, Meter>();
+          prevList.forEach((m) => map.set(m.meterId, m));
+          discoveredMeters.forEach((m) => {
+            const existing = map.get(m.meterId);
+            map.set(m.meterId, existing ? { ...existing, ...m } : m);
+          });
+          return Array.from(map.values());
+        });
+
+        // Smart active meter selection
+        setActiveMeter((prev) => {
+          if (!prev) return discoveredMeters[0];
+          
+          // If current meter is the demo meter and an actual hardware meter reported live in last 120s, auto-switch
+          const liveHardware = discoveredMeters.find(m => 
+            m.meterId !== 'ESP32-MTR-8842' && 
+            m.lastHeartbeat && 
+            (Date.now() - new Date(m.lastHeartbeat).getTime()) < 120000
+          );
+          if (prev.meterId === 'ESP32-MTR-8842' && liveHardware) {
+            return liveHardware;
+          }
+
+          // Otherwise keep current meter updated with latest metrics
+          const currentUpdated = discoveredMeters.find(m => m.meterId === prev.meterId);
+          return currentUpdated ? { ...prev, ...currentUpdated } : prev;
+        });
       }
     } catch (e) {
       console.warn('API fetch meters fallback:', e);
     }
   }, []);
+
+  // Periodic meter discovery poll every 4s
+  useEffect(() => {
+    fetchBackendMeters(user?.uid);
+    const meterDiscoveryTimer = setInterval(() => {
+      fetchBackendMeters(user?.uid);
+    }, 4000);
+    return () => clearInterval(meterDiscoveryTimer);
+  }, [user, fetchBackendMeters]);
 
   // 3. Firestore Live Sync for Meters
   useEffect(() => {
@@ -139,15 +191,20 @@ export default function App() {
         });
 
         if (loadedMeters.length > 0) {
-          setMeters(loadedMeters);
+          setMeters((prevMeters) => {
+            const map = new Map<string, Meter>();
+            prevMeters.forEach(m => map.set(m.meterId, m));
+            loadedMeters.forEach(m => {
+              const existing = map.get(m.meterId);
+              map.set(m.meterId, existing ? { ...existing, ...m } : m);
+            });
+            return Array.from(map.values());
+          });
           setActiveMeter((prev) => {
             if (!prev) return loadedMeters[0];
             const found = loadedMeters.find((m) => m.meterId === prev.meterId);
             return found || loadedMeters[0];
           });
-        } else {
-          // If Firestore has no meters for this user, check backend or prompt onboarding
-          fetchBackendMeters(user.uid);
         }
       },
       (error) => {
@@ -156,27 +213,111 @@ export default function App() {
     );
 
     return () => unsubscribe();
-  }, [user, fetchBackendMeters]);
+  }, [user]);
 
-  // 4. Fetch/Listen for Active Meter Telemetry Logs & Anomalies
+  // 4. Fetch/Listen for Active Meter Live Telemetry, Gauges & Anomalies
   useEffect(() => {
     if (!activeMeter) return;
 
-    // Fetch from backend API
+    const meterId = activeMeter.meterId;
+
+    // Fast-poll live telemetry from serverless ingestion point every 2s
     const fetchTelemetry = async () => {
       try {
-        const [telRes, anomRes] = await Promise.all([
-          fetch(`/api/meters/${encodeURIComponent(activeMeter.meterId)}/telemetry`),
-          fetch(`/api/meters/${encodeURIComponent(activeMeter.meterId)}/anomalies`),
+        const [latestRes, telRes, anomRes] = await Promise.all([
+          fetch(`/api/telemetry/latest?meterId=${encodeURIComponent(meterId)}`),
+          fetch(`/api/meters/${encodeURIComponent(meterId)}/telemetry`),
+          fetch(`/api/meters/${encodeURIComponent(meterId)}/anomalies`),
         ]);
 
-        if (telRes.ok) {
+        let latestMeterData: any = null;
+        let latestLogData: any = null;
+
+        if (latestRes.ok) {
+          const data = await latestRes.json();
+          if (data?.meter) {
+            latestMeterData = data.meter;
+          }
+          if (data?.latestLog) {
+            latestLogData = data.latestLog;
+          }
+          if (data?.logs && data.logs.length > 0) {
+            setTelemetryLogs(data.logs);
+          }
+          if (data?.alerts && data.alerts.length > 0) {
+            setAnomalies(data.alerts);
+          }
+        }
+
+        // Fallback for standard routes
+        if (!latestLogData && telRes.ok) {
           const telData = await telRes.json();
-          if (telData.logs) setTelemetryLogs(telData.logs);
+          if (telData.logs && telData.logs.length > 0) {
+            setTelemetryLogs(telData.logs);
+            latestLogData = telData.logs[telData.logs.length - 1];
+          }
         }
         if (anomRes.ok) {
           const anomData = await anomRes.json();
-          if (anomData.alerts) setAnomalies(anomData.alerts);
+          if (anomData.alerts && anomData.alerts.length > 0) {
+            setAnomalies(anomData.alerts);
+          }
+        }
+
+        // Live update active meter state with fresh voltage, current, active power, etc.
+        if (latestMeterData) {
+          setActiveMeter((prev) => {
+            if (!prev || prev.meterId !== meterId) return prev;
+            return {
+              ...prev,
+              voltage: latestMeterData.voltage,
+              current: latestMeterData.current,
+              activePower: latestMeterData.activePower,
+              reactivePower: latestMeterData.reactivePower,
+              powerFactor: latestMeterData.powerFactor,
+              frequency: latestMeterData.frequency,
+              totalEnergy: latestMeterData.totalEnergy,
+              relayState: latestMeterData.relayState,
+              status: latestMeterData.status,
+              lastHeartbeat: latestMeterData.lastHeartbeat,
+              hasAnomaly: latestMeterData.hasAnomaly,
+              anomalyType: latestMeterData.anomalyType,
+              anomalySeverity: latestMeterData.anomalySeverity,
+              anomalyDescription: latestMeterData.anomalyDescription,
+              updatedAt: latestMeterData.updatedAt,
+            };
+          });
+
+          setMeters((prevList) =>
+            prevList.map((item) => (item.meterId === meterId ? { ...item, ...latestMeterData } : item))
+          );
+
+          // Authenticated Firestore real-time sync
+          if (user) {
+            try {
+              await setDoc(
+                doc(db, 'meters', meterId),
+                {
+                  ...latestMeterData,
+                  ownerUid: user.uid,
+                },
+                { merge: true }
+              );
+
+              if (latestLogData) {
+                await setDoc(
+                  doc(db, 'meters', meterId, 'telemetry', latestLogData.id || `TL-${Date.now()}`),
+                  {
+                    ...latestLogData,
+                    ownerUid: user.uid,
+                  },
+                  { merge: true }
+                );
+              }
+            } catch (fsErr) {
+              console.warn('Firestore real-time sync notice:', fsErr);
+            }
+          }
         }
       } catch (e) {
         console.warn('Error fetching telemetry from API:', e);
@@ -184,7 +325,7 @@ export default function App() {
     };
 
     fetchTelemetry();
-    const interval = setInterval(fetchTelemetry, 3000);
+    const interval = setInterval(fetchTelemetry, 2000);
 
     // If authenticated, also listen to Firestore subcollection
     let unsubscribeTel: (() => void) | undefined;
@@ -193,7 +334,7 @@ export default function App() {
     if (user) {
       try {
         const telQuery = query(
-          collection(db, 'meters', activeMeter.meterId, 'telemetry'),
+          collection(db, 'meters', meterId, 'telemetry'),
           orderBy('timestamp', 'desc'),
           limit(100)
         );
@@ -206,7 +347,7 @@ export default function App() {
         });
 
         const anomQuery = query(
-          collection(db, 'meters', activeMeter.meterId, 'anomalies'),
+          collection(db, 'meters', meterId, 'anomalies'),
           orderBy('createdAt', 'desc'),
           limit(50)
         );
@@ -241,17 +382,24 @@ export default function App() {
     setIsRelayLoading(true);
 
     try {
-      // 1. Send command to backend
+      // 1. Send command to backend (both telemetry ingest point and meters API)
       try {
-        const res = await fetch(`/api/meters/${encodeURIComponent(activeMeter.meterId)}/relay`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ relayState: newState }),
-        });
-        if (res.ok) {
-          const text = await res.text();
-          try { JSON.parse(text); } catch {}
-        }
+        await Promise.allSettled([
+          fetch('/api/telemetry/ingest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              meterId: activeMeter.meterId,
+              action: 'relay_toggle',
+              relayState: newState,
+            }),
+          }),
+          fetch(`/api/meters/${encodeURIComponent(activeMeter.meterId)}/relay`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ relayState: newState }),
+          }),
+        ]);
       } catch (err) {
         console.warn('Backend relay API notice:', err);
       }
@@ -459,12 +607,41 @@ export default function App() {
         if (data?.meter) {
           setActiveMeter(data.meter);
           setMeters(prev => prev.map(m => m.meterId === activeMeter.meterId ? data.meter : m));
+          if (user) {
+            try {
+              setDoc(doc(db, 'meters', activeMeter.meterId), {
+                ...data.meter,
+                ownerUid: user.uid,
+              }, { merge: true });
+            } catch {}
+          }
         }
-        if (data?.telemetryLog) {
-          setTelemetryLogs(prev => [data.telemetryLog, ...prev.slice(0, 99)]);
+        const incomingLog = data?.telemetryLog || data?.log;
+        if (incomingLog) {
+          setTelemetryLogs(prev => [incomingLog, ...prev.slice(0, 99)]);
+          if (user) {
+            try {
+              setDoc(doc(db, 'meters', activeMeter.meterId, 'telemetry', incomingLog.id || `TL-${Date.now()}`), {
+                ...incomingLog,
+                ownerUid: user.uid,
+              }, { merge: true });
+            } catch {}
+          }
         }
-        if (data?.anomalyAlert) {
-          setAnomalies(prev => [data.anomalyAlert, ...prev]);
+        if (data?.anomalyAlert || (data?.anomaly && data.anomaly.hasAnomaly)) {
+          const alertObj = data.anomalyAlert || {
+            id: `ALT-${Date.now()}`,
+            meterId: activeMeter.meterId,
+            ownerUid: user ? user.uid : 'demo_user',
+            type: data.anomaly.type,
+            severity: data.anomaly.severity,
+            title: data.anomaly.title,
+            description: data.anomaly.description,
+            status: 'ACTIVE',
+            telemetrySnapshot: incomingLog || sampleData,
+            createdAt: new Date().toISOString(),
+          };
+          setAnomalies(prev => [alertObj, ...prev]);
         }
         return data;
       }

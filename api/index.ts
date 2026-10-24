@@ -256,11 +256,43 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], (req, res) => {
       },
       meter,
       log,
+      telemetryLog: log,
       timestamp: now,
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || 'Ingest failed' });
   }
+});
+
+// Telemetry query routes matching ingest.ts
+app.get(['/api/telemetry/latest', '/telemetry/latest'], (req, res) => {
+  seedDemoData();
+  const meterId = (req.query.meterId as string)?.trim();
+  if (!meterId) {
+    return res.json({ success: true, meters: Array.from(activeMeters.values()) });
+  }
+  const meter = activeMeters.get(meterId) || null;
+  const logs = telemetryStore.get(meterId) || [];
+  const latestLog = logs.length > 0 ? logs[logs.length - 1] : null;
+  res.json({
+    success: true,
+    exists: !!meter,
+    meter,
+    latestLog,
+    logs: logs.slice(-50),
+    alerts: anomalyStore.get(meterId) || [],
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get(['/api/telemetry/meters', '/telemetry/meters'], (req, res) => {
+  seedDemoData();
+  res.json({
+    success: true,
+    meters: Array.from(activeMeters.values()),
+    count: activeMeters.size,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // 3. Relay status fast poll
