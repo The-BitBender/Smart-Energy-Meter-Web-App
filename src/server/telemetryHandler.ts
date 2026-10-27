@@ -28,6 +28,32 @@ export function generateApiKey(): string {
   return res;
 }
 
+// Global total meters counter across all accounts
+export let totalMetersEverCreated = 0;
+
+/**
+ * Auto-generate Meter ID with prefix MTR- followed by 4 digits (e.g. MTR-0021)
+ * Based on total number of meters created across all accounts
+ */
+export function getNextMeterId(): string {
+  let maxSeq = 0;
+  for (const mId of activeMeters.keys()) {
+    const match = mId.match(/^MTR-(\d+)$/i);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num > maxSeq) {
+        maxSeq = num;
+      }
+    }
+  }
+  const nextNum = Math.max(activeMeters.size + 1, totalMetersEverCreated + 1, maxSeq + 1);
+  return `MTR-${String(nextNum).padStart(4, '0')}`;
+}
+
+export function incrementMetersCreated(): void {
+  totalMetersEverCreated = Math.max(totalMetersEverCreated + 1, activeMeters.size);
+}
+
 // 30-minute window in ms for Online / Offline evaluation
 export const ONLINE_WINDOW_MS = 30 * 60 * 1000;
 

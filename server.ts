@@ -12,7 +12,9 @@ import {
   updateMeter,
   IngestionError,
   generateApiKey,
-  evaluateOnlineStatus
+  evaluateOnlineStatus,
+  getNextMeterId,
+  incrementMetersCreated
 } from './src/server/telemetryHandler';
 import type { NotificationPreferences, Meter } from './src/types/energy';
 
@@ -247,39 +249,48 @@ app.get('/api/meters', (req, res) => {
   res.json({ meters: Array.from(activeMeters.values()) });
 });
 
+// Next auto-generated Meter ID based on total meters created across all accounts
+app.get('/api/meters/next-id', (req, res) => {
+  res.json({
+    success: true,
+    nextMeterId: getNextMeterId(),
+    totalMetersCount: activeMeters.size,
+  });
+});
+
 // Register or link new meter (Auto-provision credentials flow)
 app.post('/api/meters', (req, res) => {
   try {
     const body = req.body || {};
-    const meterId = body.meterId?.trim();
-    if (!meterId) {
-      return res.status(400).json({ error: 'meterId is required' });
-    }
+    const meterId = (body.meterId?.trim()) || getNextMeterId();
+    incrementMetersCreated();
 
     const now = new Date().toISOString();
+    // All dashboard metrics initialize strictly to 0.0, status to OFFLINE, lastHeartbeat to null
     const newMeter = {
       id: meterId,
       meterId,
       ownerUid: body.ownerUid || 'demo_user',
-      name: body.name?.trim() || `ESP32 Meter ${meterId}`,
+      name: body.name?.trim() || `Smart Meter ${meterId}`,
       relayState: 'ON' as const,
-      status: 'ONLINE' as const,
-      apiKey: body.apiKey?.trim() || generateApiKey(),
-      lastHeartbeat: now,
+      status: 'OFFLINE' as const,
+      // Always auto-generate 16-character secure API key
+      apiKey: generateApiKey(),
+      lastHeartbeat: null as any,
       latitude: Number(body.latitude) || 6.5244,
       longitude: Number(body.longitude) || 3.3792,
       address: body.address || 'Smart Grid Connection Point',
-      voltage: 230.0,
+      voltage: 0.0,
       current: 0.0,
       activePower: 0.0,
       reactivePower: 0.0,
-      powerFactor: 0.98,
-      frequency: 50.0,
+      powerFactor: 0.0,
+      frequency: 0.0,
       totalEnergy: 0.0,
       hasAnomaly: false,
       anomalyType: 'NONE' as const,
       anomalySeverity: 'LOW' as const,
-      anomalyDescription: 'Newly linked meter awaiting stream',
+      anomalyDescription: 'Newly configured meter awaiting initial telemetry stream',
       createdAt: now,
       updatedAt: now,
     };

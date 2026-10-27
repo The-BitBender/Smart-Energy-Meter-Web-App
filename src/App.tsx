@@ -37,7 +37,7 @@ import { SettingsTab } from './components/SettingsTab';
 import { AuthPage } from './components/AuthPage';
 import { MeterOnboardingModal } from './components/MeterOnboardingModal';
 import { Activity, ShieldCheck, Zap, Radio, AlertCircle, Plus, Cpu } from 'lucide-react';
-import { reconcileMeter, formatLastSeen } from './utils/statusHelper';
+import { reconcileMeter, formatLastSeen, generate16CharApiKey, formatMeterId } from './utils/statusHelper';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -429,25 +429,25 @@ export default function App() {
       id: meterData.meterId,
       meterId: meterData.meterId,
       ownerUid,
-      name: meterData.name || `ESP32 Meter ${meterData.meterId}`,
+      name: meterData.name || `Smart Meter ${meterData.meterId}`,
       relayState: 'ON',
-      status: 'ONLINE',
-      apiKey: meterData.apiKey || `VP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-      lastHeartbeat: now,
+      status: 'OFFLINE',
+      apiKey: meterData.apiKey || generate16CharApiKey(),
+      lastHeartbeat: null as any,
       latitude: meterData.latitude,
       longitude: meterData.longitude,
       address: meterData.address || 'Smart Grid Connection Point',
-      voltage: 230.0,
+      voltage: 0.0,
       current: 0.0,
       activePower: 0.0,
       reactivePower: 0.0,
-      powerFactor: 0.98,
-      frequency: 50.0,
+      powerFactor: 0.0,
+      frequency: 0.0,
       totalEnergy: 0.0,
       hasAnomaly: false,
       anomalyType: 'NONE',
       anomalySeverity: 'LOW',
-      anomalyDescription: 'Newly connected meter ready for telemetry stream',
+      anomalyDescription: 'Newly configured meter awaiting initial telemetry stream',
       createdAt: now,
       updatedAt: now,
     };
@@ -490,7 +490,9 @@ export default function App() {
         }
       }
 
-      // 3. Update state & switch to newly linked meter
+      // 3. Update state & switch to newly linked meter with cleared telemetry history
+      setTelemetryLogs([]);
+      setAnomalies([]);
       setMeters(prev => [newMeter, ...prev.filter(m => m.meterId !== newMeter.meterId)]);
       setActiveMeter(newMeter);
       setIsOnboardingOpen(false);
@@ -1020,6 +1022,7 @@ export default function App() {
         user={user}
         onComplete={handleLinkNewMeter}
         isLoading={isLinkLoading}
+        existingMetersCount={meters.length}
       />
 
       {/* Link New Meter Modal */}
@@ -1028,6 +1031,7 @@ export default function App() {
         onClose={() => setIsLinkModalOpen(false)}
         onLinkMeter={handleLinkNewMeter}
         isLoading={isLinkLoading}
+        existingMetersCount={meters.length}
       />
 
       {/* Alert & Notification Settings Modal */}

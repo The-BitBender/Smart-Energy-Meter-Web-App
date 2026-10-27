@@ -4,6 +4,28 @@ import { Meter } from '../types/energy';
 export const ONLINE_THRESHOLD_MS = 30 * 60 * 1000; // 1,800,000 ms
 
 /**
+ * Format a sequence number into a 4-digit Meter ID with prefix MTR-
+ * e.g., 1 -> "MTR-0001", 21 -> "MTR-0021"
+ */
+export function formatMeterId(sequenceNumber: number): string {
+  const num = Math.max(1, Math.floor(sequenceNumber));
+  return `MTR-${String(num).padStart(4, '0')}`;
+}
+
+/**
+ * Generate a cryptographically random 16-character API key
+ * Format: "VP-" + 13 uppercase alphanumeric characters = 16 chars (identical to rotation format)
+ */
+export function generate16CharApiKey(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = 'VP-';
+  for (let i = 0; i < 13; i++) {
+    s += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return s;
+}
+
+/**
  * Determine if a meter is currently ONLINE based on a 30-minute window from last received telemetry.
  */
 export function getMeterOnlineStatus(lastHeartbeat?: string | null, now = Date.now()): 'ONLINE' | 'OFFLINE' {

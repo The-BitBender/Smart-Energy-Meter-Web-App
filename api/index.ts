@@ -64,6 +64,28 @@ export function evaluateOnline(lastHeartbeat?: string | null): 'ONLINE' | 'OFFLI
   return (Date.now() - t) <= ONLINE_WINDOW_MS ? 'ONLINE' : 'OFFLINE';
 }
 
+export function generate16CharKey(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = 'VP-';
+  for (let i = 0; i < 13; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
+  return s;
+}
+
+export function getNextMeterId(): string {
+  let maxSeq = 0;
+  for (const mId of activeMeters.keys()) {
+    const match = mId.match(/^MTR-(\d+)$/i);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num > maxSeq) {
+        maxSeq = num;
+      }
+    }
+  }
+  const nextNum = Math.max(activeMeters.size + 1, maxSeq + 1);
+  return `MTR-${String(nextNum).padStart(4, '0')}`;
+}
+
 function seedDemoData() {
   if (activeMeters.size > 0) return;
   const now = Date.now();
@@ -416,39 +438,48 @@ app.get(['/api/meters', '/meters'], (req, res) => {
   res.json({ meters: Array.from(activeMeters.values()) });
 });
 
+// Next auto-generated Meter ID based on total meters created across all accounts
+app.get(['/api/meters/next-id', '/meters/next-id'], (req, res) => {
+  seedDemoData();
+  res.json({
+    success: true,
+    nextMeterId: getNextMeterId(),
+    totalMetersCount: activeMeters.size,
+  });
+});
+
 app.post(['/api/meters', '/meters'], (req, res) => {
   try {
     seedDemoData();
     const body = req.body || {};
-    const meterId = body.meterId?.trim();
-    if (!meterId) {
-      return res.status(400).json({ error: 'meterId is required' });
-    }
-
+    const meterId = (body.meterId?.trim()) || getNextMeterId();
     const now = new Date().toISOString();
+
+    // All dashboard metrics initialize strictly to 0.0, status to OFFLINE, lastHeartbeat to null
     const newMeter: MeterData = {
       id: meterId,
       meterId,
       ownerUid: body.ownerUid || 'demo_user',
       name: body.name || `Smart Meter ${meterId}`,
       relayState: 'ON',
-      status: 'ONLINE',
-      apiKey: body.apiKey || `VP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-      lastHeartbeat: now,
+      status: 'OFFLINE',
+      // Always auto-generate 16-character secure API key
+      apiKey: generate16CharKey(),
+      lastHeartbeat: null as any,
       latitude: Number(body.latitude) || 6.5244,
       longitude: Number(body.longitude) || 3.3792,
       address: body.address || 'Smart Grid Connection Point',
-      voltage: Number(body.voltage) || 230.0,
-      current: Number(body.current) || 0.0,
-      activePower: Number(body.activePower) || 0.0,
-      reactivePower: Number(body.reactivePower) || 0.0,
-      powerFactor: Number(body.powerFactor) || 0.98,
-      frequency: Number(body.frequency) || 50.0,
-      totalEnergy: Number(body.totalEnergy) || 0.0,
+      voltage: 0.0,
+      current: 0.0,
+      activePower: 0.0,
+      reactivePower: 0.0,
+      powerFactor: 0.0,
+      frequency: 0.0,
+      totalEnergy: 0.0,
       hasAnomaly: false,
       anomalyType: 'NONE',
       anomalySeverity: 'LOW',
-      anomalyDescription: 'Operating normally',
+      anomalyDescription: 'Newly configured meter awaiting initial telemetry stream',
       createdAt: now,
       updatedAt: now,
     };

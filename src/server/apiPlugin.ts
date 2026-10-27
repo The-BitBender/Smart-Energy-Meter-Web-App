@@ -11,7 +11,9 @@ import {
   updateMeter,
   IngestionError,
   generateApiKey,
-  evaluateOnlineStatus
+  evaluateOnlineStatus,
+  getNextMeterId,
+  incrementMetersCreated
 } from './telemetryHandler';
 import { Meter, NotificationPreferences } from '../types/energy';
 
@@ -308,37 +310,49 @@ export function apiMiddlewarePlugin(): Plugin {
             return sendJson(res, 200, { meters: list });
           }
 
+          // 8b. Get next auto-generated Meter ID based on total meters created across all accounts
+          if (cleanPath === '/api/meters/next-id' && req.method === 'GET') {
+            const nextId = getNextMeterId();
+            return sendJson(res, 200, {
+              success: true,
+              nextMeterId: nextId,
+              totalMetersCount: activeMeters.size,
+            });
+          }
+
           // 9. Register or Link New Meter (POST /api/meters)
           if (cleanPath === '/api/meters' && req.method === 'POST') {
             const body = await readJsonBody(req);
-            const meterId = body.meterId?.trim();
-            if (!meterId) {
-              return sendJson(res, 400, { success: false, error: 'meterId is required' });
-            }
+            // Auto-generate meterId if not provided (MTR-XXXX format based on total meters)
+            const meterId = (body.meterId?.trim()) || getNextMeterId();
             const now = new Date().toISOString();
+            incrementMetersCreated();
+
+            // All metrics MUST initialize to 0.0, status to OFFLINE, and lastHeartbeat to null
             const newMeter: Meter = {
               id: meterId,
               meterId,
               ownerUid: body.ownerUid || 'demo_user',
-              name: body.name?.trim() || `ESP32 Meter ${meterId}`,
+              name: body.name?.trim() || `Smart Meter ${meterId}`,
               relayState: 'ON',
-              status: 'ONLINE',
-              apiKey: body.apiKey?.trim() || generateApiKey(),
-              lastHeartbeat: now,
+              status: 'OFFLINE',
+              // Always auto-generate 16-character secure API key (rotation format)
+              apiKey: generateApiKey(),
+              lastHeartbeat: null as any,
               latitude: Number(body.latitude) || 6.5244,
               longitude: Number(body.longitude) || 3.3792,
               address: body.address || 'Smart Grid Connection Point',
-              voltage: 230.0,
+              voltage: 0.0,
               current: 0.0,
               activePower: 0.0,
               reactivePower: 0.0,
-              powerFactor: 0.98,
-              frequency: 50.0,
+              powerFactor: 0.0,
+              frequency: 0.0,
               totalEnergy: 0.0,
               hasAnomaly: false,
               anomalyType: 'NONE',
               anomalySeverity: 'LOW',
-              anomalyDescription: 'Newly linked meter awaiting stream',
+              anomalyDescription: 'Newly configured meter awaiting initial telemetry stream',
               createdAt: now,
               updatedAt: now,
             };

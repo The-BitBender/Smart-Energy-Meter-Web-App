@@ -1,20 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Cpu, 
-  Key, 
   Sparkles, 
   Copy, 
   Check, 
   ArrowRight, 
   MapPin, 
-  RefreshCw, 
-  Sliders, 
   ShieldCheck, 
-  AlertCircle,
-  Wifi,
-  Radio
+  Sliders
 } from 'lucide-react';
-import { Meter } from '../types/energy';
+import { generate16CharApiKey, formatMeterId } from '../utils/statusHelper';
 
 interface MeterOnboardingModalProps {
   isOpen: boolean;
@@ -28,6 +23,7 @@ interface MeterOnboardingModalProps {
     address: string;
   }) => Promise<void>;
   isLoading: boolean;
+  existingMetersCount?: number;
 }
 
 export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
@@ -35,51 +31,61 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
   user,
   onComplete,
   isLoading,
+  existingMetersCount = 0,
 }) => {
-  const [tab, setTab] = useState<'auto' | 'custom'>('auto');
+  const [tab, setTab] = useState<'overview' | 'customize'>('overview');
   
   // State for credentials
-  const [meterId, setMeterId] = useState('');
-  const [apiKey, setApiKey] = useState('');
+  const [meterId, setMeterId] = useState(`MTR-${String(existingMetersCount + 1).padStart(4, '0')}`);
+  const [apiKey, setApiKey] = useState(generate16CharApiKey());
   const [name, setName] = useState('');
-  const [address, setAddress] = useState('');
+  const [address, setAddress] = useState('Distribution Pole 14, Commercial Substation Area');
   const [latitude, setLatitude] = useState('6.5244');
   const [longitude, setLongitude] = useState('3.3792');
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [copiedId, setCopiedId] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gpsDetecting, setGpsDetecting] = useState(false);
 
-  // Helper to generate unique IDs
-  const generateRandomCredentials = () => {
-    const randomNum = Math.floor(1000 + Math.random() * 9000);
-    const randomHex = Math.random().toString(36).substring(2, 8).toUpperCase();
-    return {
-      id: `ESP32-MTR-${randomNum}`,
-      key: `VP-${randomNum}-${randomHex}-KEY`,
-      defaultName: `Main Feeder Board (Meter ${randomNum})`,
-      defaultAddress: 'Distribution Pole 14, Commercial Substation Area',
-    };
-  };
-
-  // Initialize auto-generated credentials on mount
+  // Initialize auto-generated credentials on modal open based on total meters created
   useEffect(() => {
-    if (isOpen) {
-      const generated = generateRandomCredentials();
-      setMeterId(generated.id);
-      setApiKey(generated.key);
-      setName(generated.defaultName);
-      setAddress(generated.defaultAddress);
-    }
-  }, [isOpen]);
+    if (!isOpen) return;
+
+    let isMounted = true;
+    const fetchNextId = async () => {
+      try {
+        const res = await fetch('/api/meters/next-id');
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted && data.nextMeterId) {
+            setMeterId(data.nextMeterId);
+            setName(`Main Feeder Board (${data.nextMeterId})`);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Next ID endpoint query notice:', err);
+      }
+
+      if (isMounted) {
+        const fallbackId = formatMeterId(existingMetersCount + 1);
+        setMeterId(fallbackId);
+        setName(`Main Feeder Board (${fallbackId})`);
+      }
+    };
+
+    fetchNextId();
+    // Strictly auto-generate 16-character secure API key (rotation format)
+    setApiKey(generate16CharApiKey());
+    setError(null);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, existingMetersCount]);
 
   if (!isOpen) return null;
-
-  const handleRegenerate = () => {
-    const generated = generateRandomCredentials();
-    setMeterId(generated.id);
-    setApiKey(generated.key);
-    setName(generated.defaultName);
-  };
 
   const handleDetectGPS = () => {
     if (!navigator.geolocation) {
@@ -96,7 +102,7 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
       (err) => {
         console.warn('GPS detection notice:', err);
         setGpsDetecting(false);
-        setError('Could not detect exact GPS coordinates. Using substation default.');
+        setError('Could not detect exact GPS coordinates. Using default.');
       },
       { timeout: 8000 }
     );
@@ -122,6 +128,18 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
     setTimeout(() => setCopiedCode(false), 2500);
   };
 
+  const handleCopyKey = () => {
+    navigator.clipboard.writeText(apiKey);
+    setCopiedKey(true);
+    setTimeout(() => setCopiedKey(false), 2000);
+  };
+
+  const handleCopyId = () => {
+    navigator.clipboard.writeText(meterId);
+    setCopiedId(true);
+    setTimeout(() => setCopiedId(false), 2000);
+  };
+
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setError(null);
@@ -142,8 +160,8 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
     try {
       await onComplete({
         meterId: cleanMeterId,
-        name: name.trim() || `ESP32 Meter ${cleanMeterId}`,
-        apiKey: apiKey.trim() || `VP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+        name: name.trim() || `Smart Meter ${cleanMeterId}`,
+        apiKey: apiKey.trim(),
         latitude: lat,
         longitude: lng,
         address: address.trim() || 'Smart Grid Connection Point',
@@ -159,12 +177,9 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
-      <div className="relative w-full max-w-2xl rounded-3xl bg-[#003833] border-2 border-white/20 shadow-2xl p-6 sm:p-8 text-white my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in overflow-y-auto">
+      <div className="relative w-full max-w-2xl rounded-3xl bg-[#003833] border-2 border-white/20 shadow-2xl p-6 sm:p-8 text-white my-8 max-h-[92vh] overflow-y-auto">
         
-        {/* Glow accent */}
-        <div className="absolute top-0 right-1/4 -mt-10 w-40 h-40 bg-teal-400/20 rounded-full blur-3xl pointer-events-none"></div>
-
         {/* Wizard Header */}
         <div className="flex items-start justify-between pb-6 border-b border-white/15">
           <div className="flex items-center space-x-3.5">
@@ -195,108 +210,132 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
         <div className="flex rounded-xl bg-[#002b27] p-1 border border-white/15 my-6">
           <button
             type="button"
-            onClick={() => setTab('auto')}
-            className={`flex-1 flex items-center justify-center space-x-2 py-2.5 rounded-lg text-xs font-black transition-all ${
-              tab === 'auto'
+            onClick={() => setTab('overview')}
+            className={`flex-1 flex items-center justify-center space-x-2 py-2.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+              tab === 'overview'
                 ? 'bg-white text-[#005149] shadow-md'
                 : 'text-teal-200 hover:text-white'
             }`}
           >
             <Sparkles className="w-4 h-4" />
-            <span>Auto-Generate Credentials (Recommended)</span>
+            <span>Auto-Generated Credentials (Recommended)</span>
           </button>
           <button
             type="button"
-            onClick={() => setTab('custom')}
-            className={`flex-1 flex items-center justify-center space-x-2 py-2.5 rounded-lg text-xs font-black transition-all ${
-              tab === 'custom'
+            onClick={() => setTab('customize')}
+            className={`flex-1 flex items-center justify-center space-x-2 py-2.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+              tab === 'customize'
                 ? 'bg-white text-[#005149] shadow-md'
                 : 'text-teal-200 hover:text-white'
             }`}
           >
             <Sliders className="w-4 h-4" />
-            <span>Custom Hardware Input</span>
+            <span>Customize Site &amp; Location</span>
           </button>
         </div>
 
         {error && (
-          <div className="mb-4 p-3.5 rounded-xl bg-rose-500/20 border border-rose-400/40 text-rose-200 text-xs flex items-start space-x-2 animate-fade-in">
-            <AlertCircle className="w-4 h-4 text-rose-300 shrink-0 mt-0.5" />
-            <span>{error}</span>
+          <div className="mb-4 p-3 rounded-xl bg-rose-500/20 border border-rose-400/40 text-rose-200 text-xs font-semibold">
+            {error}
           </div>
         )}
 
-        {/* TAB 1: Auto-Generated Mode */}
-        {tab === 'auto' && (
+        {/* TAB 1: Auto Credentials Overview */}
+        {tab === 'overview' && (
           <div className="space-y-5">
-            <div className="p-4 rounded-2xl bg-[#004741] border border-white/15 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-teal-100 uppercase tracking-wide">
-                  Auto-Provisioned Hardware Credentials
-                </span>
-                <button
-                  type="button"
-                  onClick={handleRegenerate}
-                  className="flex items-center space-x-1 text-xs text-white hover:text-teal-100 font-bold bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-lg transition-colors"
-                >
-                  <RefreshCw className="w-3 h-3 text-teal-200" />
-                  <span>Regenerate Pair</span>
-                </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              
+              {/* Meter ID Card */}
+              <div className="p-4 rounded-2xl bg-[#002b27] border border-white/15 space-y-2">
+                <div className="flex items-center justify-between text-xs text-teal-200">
+                  <span className="font-semibold uppercase tracking-wider text-[10px]">Meter Hardware ID</span>
+                  <span className="text-[10px] font-mono bg-white/10 px-1.5 py-0.5 rounded text-teal-200 font-bold">
+                    Auto-Sequential
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="text-xl sm:text-2xl font-black font-mono text-white tracking-wide">
+                    {meterId}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopyId}
+                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-teal-200 transition-colors"
+                    title="Copy Meter ID"
+                  >
+                    {copiedId ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-teal-300/80">
+                  Assigned automatically from total meters created across all accounts.
+                </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono">
-                <div className="p-3 rounded-xl bg-[#002f2b] border border-white/10">
-                  <span className="text-[10px] text-teal-300 uppercase block font-sans font-bold">Meter Hardware ID</span>
-                  <span className="text-base font-extrabold text-white tracking-wide">{meterId}</span>
+              {/* API Key Card (NO INPUT FIELD) */}
+              <div className="p-4 rounded-2xl bg-[#002b27] border border-white/15 space-y-2">
+                <div className="flex items-center justify-between text-xs text-teal-200">
+                  <span className="font-semibold uppercase tracking-wider text-[10px]">Hardware Secret Key</span>
+                  <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-bold border border-emerald-500/30">
+                    16 Chars Fixed
+                  </span>
                 </div>
-                <div className="p-3 rounded-xl bg-[#002f2b] border border-white/10">
-                  <span className="text-[10px] text-teal-300 uppercase block font-sans font-bold">Hardware API Secret Key</span>
-                  <span className="text-xs font-extrabold text-amber-300 tracking-wider truncate block">{apiKey}</span>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm sm:text-base font-bold font-mono text-emerald-300 tracking-wider truncate mr-2">
+                    {apiKey}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopyKey}
+                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-teal-200 transition-colors shrink-0"
+                    title="Copy API Key"
+                  >
+                    {copiedKey ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                  </button>
                 </div>
-              </div>
-
-              <div className="flex items-center justify-between text-xs text-teal-100 pt-1">
-                <span>Panel Label: <strong className="text-white">{name}</strong></span>
-                <span className="text-teal-300 font-mono text-[11px]">GPS: {latitude}, {longitude}</span>
+                <p className="text-[11px] text-teal-300/80">
+                  Cryptographic random token. Never requires manual typing.
+                </p>
               </div>
             </div>
 
-            {/* Ready-to-flash C++ Code Snippet */}
-            <div className="space-y-2">
+            {/* Zero State Notice */}
+            <div className="p-3.5 rounded-xl bg-[#002420] border border-white/10 text-xs text-teal-100 flex items-start space-x-2.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <div className="font-bold text-white">Clean Zero Baseline Initialization</div>
+                <div className="text-[11px] text-teal-200/80">
+                  When initialized, all dashboard telemetry readings (voltage, active power, current, power factor, frequency, energy) will start at <strong>0.0</strong> in <strong>OFFLINE</strong> status until real-world hardware data is streamed.
+                </div>
+              </div>
+            </div>
+
+            {/* Firmware Code Snippet */}
+            <div className="rounded-2xl bg-[#001e1b] border border-white/15 p-4 space-y-2.5">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-teal-100 uppercase tracking-wide flex items-center space-x-1.5">
-                  <Cpu className="w-3.5 h-3.5 text-teal-200" />
-                  <span>Ready-to-Flash ESP32 Firmware Snippet</span>
-                </label>
+                <span className="text-xs font-bold text-teal-200 font-mono">
+                  ESP32 Arduino Firmware Config (Ready to Flash)
+                </span>
                 <button
                   type="button"
                   onClick={handleCopyCode}
-                  className="flex items-center space-x-1 px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-bold text-white transition-colors"
+                  className="px-3 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-white font-mono text-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
                 >
-                  {copiedCode ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-300" />
-                      <span className="text-emerald-300">Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5 text-teal-200" />
-                      <span>Copy Snippet</span>
-                    </>
-                  )}
+                  {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedCode ? 'Copied Code!' : 'Copy Code'}</span>
                 </button>
               </div>
-              <pre className="p-3.5 rounded-xl bg-[#002723] border border-white/15 text-[11px] font-mono text-teal-100 overflow-x-auto leading-relaxed">
+              <pre className="text-[11px] font-mono text-teal-100/90 p-3 bg-black/40 rounded-xl overflow-x-auto leading-relaxed border border-white/5">
                 {firmwareSnippet}
               </pre>
             </div>
 
+            {/* Submit Button */}
             <div className="pt-2">
               <button
                 type="button"
                 onClick={() => handleSubmit()}
                 disabled={isLoading}
-                className="w-full flex items-center justify-center space-x-2 py-3.5 px-6 rounded-2xl bg-white hover:bg-teal-50 text-[#005149] font-black text-sm transition-all shadow-xl active:scale-[0.98] disabled:opacity-50"
+                className="w-full flex items-center justify-center space-x-2 py-3.5 px-6 rounded-2xl bg-white hover:bg-teal-50 text-[#005149] font-black text-sm transition-all shadow-xl active:scale-[0.98] disabled:opacity-50 cursor-pointer"
               >
                 <span>{isLoading ? 'Registering & Linking Meter...' : 'Save & Open Live Energy Dashboard'}</span>
                 <ArrowRight className="w-4 h-4 text-[#005149]" />
@@ -305,54 +344,19 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
           </div>
         )}
 
-        {/* TAB 2: Custom Configuration Mode */}
-        {tab === 'custom' && (
+        {/* TAB 2: Customize Installation Details (NO API KEY FIELD) */}
+        {tab === 'customize' && (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            
+            {/* Read-only Hardware Credentials Notice */}
+            <div className="p-3.5 rounded-xl bg-[#002420] border border-teal-500/30 flex items-center justify-between text-xs">
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-bold text-teal-100 uppercase tracking-wide">
-                    Meter Hardware ID
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setMeterId(`ESP32-MTR-${Math.floor(1000 + Math.random() * 9000)}`)}
-                    className="text-[11px] text-teal-200 hover:text-white underline"
-                  >
-                    Random ID
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={meterId}
-                  onChange={(e) => setMeterId(e.target.value)}
-                  placeholder="e.g. ESP32-MTR-9021"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#002f2b] border border-white/20 text-white font-mono text-sm focus:outline-none focus:border-white"
-                  required
-                />
+                <span className="text-teal-300/80 font-mono text-[11px]">Assigned Meter ID: </span>
+                <span className="font-mono font-bold text-white text-sm">{meterId}</span>
               </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-bold text-teal-100 uppercase tracking-wide">
-                    Hardware API Secret Key
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setApiKey(`VP-${Math.random().toString(36).substring(2, 10).toUpperCase()}-KEY`)}
-                    className="text-[11px] text-teal-200 hover:text-white underline"
-                  >
-                    Random Key
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="e.g. VP-9021-SECURE-KEY"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#002f2b] border border-white/20 text-white font-mono text-xs focus:outline-none focus:border-white"
-                  required
-                />
+              <div className="text-right">
+                <span className="text-teal-300/80 font-mono text-[11px]">API Key: </span>
+                <span className="font-mono font-bold text-emerald-300">{apiKey.substring(0, 7)}...</span>
               </div>
             </div>
 
@@ -365,7 +369,7 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Workshop Sub-Distribution Board"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-[#002f2b] border border-white/20 text-white text-sm focus:outline-none focus:border-white"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#002f2b] border border-white/20 text-white text-sm focus:outline-hidden focus:border-white"
                 required
               />
             </div>
@@ -379,7 +383,7 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="e.g. Distribution Pole 14, Commercial Way"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-[#002f2b] border border-white/20 text-white text-sm focus:outline-none focus:border-white"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#002f2b] border border-white/20 text-white text-sm focus:outline-hidden focus:border-white"
                 required
               />
             </div>
@@ -394,7 +398,7 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
                   type="button"
                   onClick={handleDetectGPS}
                   disabled={gpsDetecting}
-                  className="text-[11px] text-teal-200 hover:text-white font-bold flex items-center space-x-1"
+                  className="text-[11px] text-teal-200 hover:text-white font-bold flex items-center space-x-1 cursor-pointer"
                 >
                   <MapPin className="w-3 h-3 text-emerald-300" />
                   <span>{gpsDetecting ? 'Detecting GPS...' : 'Use My Current Location'}</span>
@@ -408,7 +412,7 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
                   value={latitude}
                   onChange={(e) => setLatitude(e.target.value)}
                   placeholder="Latitude (e.g. 6.5244)"
-                  className="px-3.5 py-2 rounded-xl bg-[#002f2b] border border-white/20 text-white font-mono text-xs focus:outline-none focus:border-white"
+                  className="px-3.5 py-2 rounded-xl bg-[#002f2b] border border-white/20 text-white font-mono text-xs focus:outline-hidden focus:border-white"
                   required
                 />
                 <input
@@ -417,19 +421,27 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
                   value={longitude}
                   onChange={(e) => setLongitude(e.target.value)}
                   placeholder="Longitude (e.g. 3.3792)"
-                  className="px-3.5 py-2 rounded-xl bg-[#002f2b] border border-white/20 text-white font-mono text-xs focus:outline-none focus:border-white"
+                  className="px-3.5 py-2 rounded-xl bg-[#002f2b] border border-white/20 text-white font-mono text-xs focus:outline-hidden focus:border-white"
                   required
                 />
               </div>
+            </div>
+
+            {/* Zero State Reminder */}
+            <div className="p-3 rounded-xl bg-[#002420] border border-white/10 text-[11px] text-teal-200 flex items-start space-x-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <span>
+                All gauges (voltage, power, current, energy) will start at <strong>0.0</strong> in <strong>OFFLINE</strong> state.
+              </span>
             </div>
 
             <div className="pt-3">
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full flex items-center justify-center space-x-2 py-3.5 px-6 rounded-2xl bg-white hover:bg-teal-50 text-[#005149] font-black text-sm transition-all shadow-xl active:scale-[0.98] disabled:opacity-50"
+                className="w-full flex items-center justify-center space-x-2 py-3.5 px-6 rounded-2xl bg-white hover:bg-teal-50 text-[#005149] font-black text-sm transition-all shadow-xl active:scale-[0.98] disabled:opacity-50 cursor-pointer"
               >
-                <span>{isLoading ? 'Connecting Hardware...' : 'Link Custom Meter & Launch Dashboard'}</span>
+                <span>{isLoading ? 'Connecting Hardware...' : 'Link Meter & Launch Dashboard'}</span>
                 <ArrowRight className="w-4 h-4 text-[#005149]" />
               </button>
             </div>
