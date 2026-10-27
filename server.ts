@@ -1,8 +1,19 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { activeMeters, anomalyStore, processTelemetryIngest, telemetryStore, userPreferencesStore } from './src/server/telemetryHandler';
-import type { NotificationPreferences } from './src/types/energy';
+import { 
+  activeMeters, 
+  anomalyStore, 
+  processTelemetryIngest, 
+  telemetryStore, 
+  userPreferencesStore,
+  deleteMeter,
+  rotateMeterApiKey,
+  updateMeter,
+  IngestionError,
+  generateApiKey
+} from './src/server/telemetryHandler';
+import type { NotificationPreferences, Meter } from './src/types/energy';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -119,12 +130,12 @@ app.post('/api/telemetry/ingest', (req, res) => {
   try {
     const payload = req.body || {};
     const apiKey = (req.headers['x-api-key'] as string) || payload.apiKey;
-    if (apiKey) payload.apiKey = apiKey;
 
-    const result = processTelemetryIngest(payload);
+    const result = processTelemetryIngest(payload, apiKey);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Ingestion failed' });
+    const statusCode = err instanceof IngestionError ? err.statusCode : 400;
+    res.status(statusCode).json({ success: false, error: err.message || 'Ingestion failed' });
   }
 });
 
@@ -172,14 +183,50 @@ app.get('/api/meters/:meterId/relay-status', (req, res) => {
 // Remote relay toggle
 app.post('/api/meters/:meterId/relay', (req, res) => {
   const meter = activeMeters.get(req.params.meterId);
-  if (!meter) return res.status(404).json({ error: 'Meter not found' });
+  if (!meter) return res.status(404).json({ success: false, error: 'Meter not found' });
   if (req.body.relayState !== 'ON' && req.body.relayState !== 'OFF') {
-    return res.status(400).json({ error: 'relayState must be ON or OFF' });
+    return res.status(400).json({ success: false, error: 'relayState must be ON or OFF' });
   }
   meter.relayState = req.body.relayState;
   meter.updatedAt = new Date().toISOString();
   activeMeters.set(req.params.meterId, meter);
   res.json({ success: true, meterId: meter.meterId, relayState: meter.relayState });
+});
+
+// Rotate or set API key for a meter
+app.post('/api/meters/:meterId/rotate-key', (req, res) => {
+  try {
+    const newKey = rotateMeterApiKey(req.params.meterId, req.body?.apiKey);
+    const meter = activeMeters.get(req.params.meterId);
+    res.json({ success: true, meterId: req.params.meterId, apiKey: newKey, meter });
+  } catch (err: any) {
+    const statusCode = err instanceof IngestionError ? err.statusCode : 400;
+    res.status(statusCode).json({ success: false, error: err.message });
+  }
+});
+
+// Delete a meter permanently
+app.delete('/api/meters/:meterId', (req, res) => {
+  const deleted = deleteMeter(req.params.meterId);
+  if (!deleted) {
+    return res.status(404).json({ success: false, error: `Meter '${req.params.meterId}' not found` });
+  }
+  res.json({ 
+    success: true, 
+    meterId: req.params.meterId, 
+    message: `Meter '${req.params.meterId}' deleted successfully.` 
+  });
+});
+
+// Update meter metadata
+app.put('/api/meters/:meterId', (req, res) => {
+  try {
+    const updated = updateMeter(req.params.meterId, req.body || {});
+    res.json({ success: true, meter: updated });
+  } catch (err: any) {
+    const statusCode = err instanceof IngestionError ? err.statusCode : 400;
+    res.status(statusCode).json({ success: false, error: err.message });
+  }
 });
 
 // Meters endpoints
@@ -204,7 +251,7 @@ app.post('/api/meters', (req, res) => {
       name: body.name?.trim() || `ESP32 Meter ${meterId}`,
       relayState: 'ON' as const,
       status: 'ONLINE' as const,
-      apiKey: body.apiKey || `VP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+      apiKey: body.apiKey?.trim() || generateApiKey(),
       lastHeartbeat: now,
       latitude: Number(body.latitude) || 6.5244,
       longitude: Number(body.longitude) || 3.3792,

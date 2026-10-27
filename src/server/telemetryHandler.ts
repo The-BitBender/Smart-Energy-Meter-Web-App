@@ -7,6 +7,29 @@ export const telemetryStore = new Map<string, TelemetryLog[]>();
 export const anomalyStore = new Map<string, AnomalyAlert[]>();
 export const userPreferencesStore = new Map<string, NotificationPreferences>();
 
+// Custom error with HTTP status code
+export class IngestionError extends Error {
+  statusCode: number;
+  constructor(statusCode: number, message: string) {
+    super(message);
+    this.statusCode = statusCode;
+    this.name = 'IngestionError';
+  }
+}
+
+// Generate secure API key in format VP-XXXX-XXXX-XXXX
+export function generateApiKey(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const segment = (len: number) => {
+    let res = '';
+    for (let i = 0; i < len; i++) {
+      res += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return res;
+  };
+  return `VP-${segment(4)}-${segment(4)}-${segment(4)}`;
+}
+
 // Default fallback preferences for demo / initial user
 userPreferencesStore.set('demo_user', {
   userId: 'demo_user',
@@ -24,53 +47,250 @@ userPreferencesStore.set('demo_user', {
 export interface IngestPayload {
   meterId: string;
   apiKey?: string;
-  voltage: number;
-  current: number;
-  activePower?: number;
-  reactivePower?: number;
-  powerFactor?: number;
-  frequency?: number;
-  energy?: number;
+  voltage?: number | string;
+  current?: number | string;
+  activePower?: number | string;
+  reactivePower?: number | string;
+  powerFactor?: number | string;
+  frequency?: number | string;
+  energy?: number | string;
   relayState?: RelayState;
-  latitude?: number;
-  longitude?: number;
+  latitude?: number | string;
+  longitude?: number | string;
   address?: string;
+  action?: string;
 }
 
-export function processTelemetryIngest(payload: IngestPayload, ownerUid = 'default_user') {
-  const meterId = payload.meterId?.trim();
-  if (!meterId) {
-    throw new Error('meterId is required');
+/**
+ * Delete a meter and its associated logs and alerts
+ */
+export function deleteMeter(meterId: string): boolean {
+  if (!activeMeters.has(meterId)) {
+    return false;
+  }
+  activeMeters.delete(meterId);
+  telemetryStore.delete(meterId);
+  anomalyStore.delete(meterId);
+  return true;
+}
+
+/**
+ * Rotate or set an API key for a meter
+ */
+export function rotateMeterApiKey(meterId: string, customKey?: string): string {
+  const meter = activeMeters.get(meterId);
+  if (!meter) {
+    throw new IngestionError(404, `Meter '${meterId}' not found`);
   }
 
-  // Find or initialize meter
-  let meter = activeMeters.get(meterId);
+  const newKey = customKey?.trim() ? customKey.trim().toUpperCase() : generateApiKey();
+  meter.apiKey = newKey;
+  meter.updatedAt = new Date().toISOString();
+  activeMeters.set(meterId, meter);
+  return newKey;
+}
+
+/**
+ * Update general meter properties (name, address, GPS)
+ */
+export function updateMeter(meterId: string, updates: Partial<Meter>): Meter {
+  const meter = activeMeters.get(meterId);
+  if (!meter) {
+    throw new IngestionError(404, `Meter '${meterId}' not found`);
+  }
+
+  if (updates.name !== undefined) meter.name = updates.name.trim();
+  if (updates.address !== undefined) meter.address = updates.address.trim();
+  if (updates.latitude !== undefined) meter.latitude = Number(updates.latitude);
+  if (updates.longitude !== undefined) meter.longitude = Number(updates.longitude);
+  if (updates.relayState !== undefined && (updates.relayState === 'ON' || updates.relayState === 'OFF')) {
+    meter.relayState = updates.relayState;
+  }
+  meter.updatedAt = new Date().toISOString();
+  activeMeters.set(meterId, meter);
+  return meter;
+}
+
+/**
+ * Strict telemetry ingestion processor:
+ * - Meter MUST exist
+ * - API Key MUST be present and match
+ * - Numerical telemetry MUST be valid finite numbers within plausible physical ranges
+ * - NEVER auto-creates a meter on ingestion
+ */
+export function processTelemetryIngest(payload: IngestPayload, headerApiKey?: string) {
+  if (!payload || typeof payload !== 'object') {
+    throw new IngestionError(400, 'Invalid request body: Expected a valid JSON object');
+  }
+
+  const rawMeterId = payload.meterId;
+  if (!rawMeterId || typeof rawMeterId !== 'string' || !rawMeterId.trim()) {
+    throw new IngestionError(400, "Validation failed: 'meterId' is required and must be a non-empty string");
+  }
+
+  const meterId = rawMeterId.trim();
+
+  // 1. Strict Meter Existence Check - NO auto-creation
+  const meter = activeMeters.get(meterId);
+  if (!meter) {
+    throw new IngestionError(
+      404,
+      `Meter '${meterId}' is not registered. Please register the meter in the VoltPulse dashboard before streaming telemetry.`
+    );
+  }
+
+  // 2. Strict API Key Authentication
+  const incomingApiKey = (headerApiKey || payload.apiKey || '').toString().trim();
+  if (!incomingApiKey) {
+    throw new IngestionError(
+      401,
+      `Authentication failed: Missing API Key for meter '${meterId}'. Include 'X-API-Key' header or 'apiKey' field.`
+    );
+  }
+
+  if (incomingApiKey !== meter.apiKey) {
+    throw new IngestionError(
+      401,
+      `Authentication failed: Invalid API key for meter '${meterId}'. Verify your key in Dashboard > Settings.`
+    );
+  }
+
+  // Handle pure relay command or heartbeat
+  if (payload.action === 'relay_toggle' && payload.relayState) {
+    if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
+      throw new IngestionError(400, "Validation failed: 'relayState' must be 'ON' or 'OFF'");
+    }
+    meter.relayState = payload.relayState;
+    meter.updatedAt = new Date().toISOString();
+    return {
+      success: true,
+      meterId,
+      relayState: meter.relayState,
+      status: meter.status,
+    };
+  }
+
+  // 3. Strict Payload Validation for Telemetry Metrics
+  if (payload.voltage === undefined && payload.current === undefined && payload.activePower === undefined) {
+    throw new IngestionError(
+      400,
+      'Validation failed: Telemetry payload must include at least voltage, current, or activePower readings'
+    );
+  }
+
+  // Voltage validation
+  let voltage = meter.voltage;
+  if (payload.voltage !== undefined) {
+    const parsedV = Number(payload.voltage);
+    if (!Number.isFinite(parsedV) || isNaN(parsedV)) {
+      throw new IngestionError(400, `Validation failed: 'voltage' must be a valid number, received: ${payload.voltage}`);
+    }
+    if (parsedV < 0 || parsedV > 600) {
+      throw new IngestionError(400, `Validation failed: 'voltage' (${parsedV}V) is outside plausible physical range (0V - 600V)`);
+    }
+    voltage = Math.round(parsedV * 10) / 10;
+  }
+
+  // Current validation
+  let current = meter.current;
+  if (payload.current !== undefined) {
+    const parsedI = Number(payload.current);
+    if (!Number.isFinite(parsedI) || isNaN(parsedI)) {
+      throw new IngestionError(400, `Validation failed: 'current' must be a valid number, received: ${payload.current}`);
+    }
+    if (parsedI < 0 || parsedI > 500) {
+      throw new IngestionError(400, `Validation failed: 'current' (${parsedI}A) is outside plausible physical range (0A - 500A)`);
+    }
+    current = Math.round(parsedI * 100) / 100;
+  }
+
+  // Power Factor validation
+  let powerFactor = meter.powerFactor || 0.96;
+  if (payload.powerFactor !== undefined) {
+    const parsedPF = Number(payload.powerFactor);
+    if (!Number.isFinite(parsedPF) || isNaN(parsedPF)) {
+      throw new IngestionError(400, `Validation failed: 'powerFactor' must be a valid number, received: ${payload.powerFactor}`);
+    }
+    if (parsedPF < -1.0 || parsedPF > 1.0) {
+      throw new IngestionError(400, `Validation failed: 'powerFactor' (${parsedPF}) must be between -1.0 and 1.0`);
+    }
+    powerFactor = Math.round(parsedPF * 100) / 100;
+  }
+
+  // Active Power validation
+  let activePower: number;
+  if (payload.activePower !== undefined) {
+    const parsedP = Number(payload.activePower);
+    if (!Number.isFinite(parsedP) || isNaN(parsedP)) {
+      throw new IngestionError(400, `Validation failed: 'activePower' must be a valid number, received: ${payload.activePower}`);
+    }
+    if (parsedP < -50000 || parsedP > 200000) {
+      throw new IngestionError(400, `Validation failed: 'activePower' (${parsedP}W) is outside physical range (-50kW to 200kW)`);
+    }
+    activePower = Math.round(parsedP * 10) / 10;
+  } else {
+    activePower = Math.round(voltage * current * powerFactor * 10) / 10;
+  }
+
+  // Apparent & Reactive Power calculation
+  const apparentPower = Math.abs(voltage * current);
+  let reactivePower: number;
+  if (payload.reactivePower !== undefined) {
+    const parsedQ = Number(payload.reactivePower);
+    if (!Number.isFinite(parsedQ) || isNaN(parsedQ)) {
+      throw new IngestionError(400, `Validation failed: 'reactivePower' must be a valid number, received: ${payload.reactivePower}`);
+    }
+    reactivePower = Math.round(parsedQ * 10) / 10;
+  } else if (apparentPower >= Math.abs(activePower)) {
+    reactivePower = Math.round(Math.sqrt(Math.max(0, apparentPower * apparentPower - activePower * activePower)) * 10) / 10;
+  } else {
+    reactivePower = 0;
+  }
+
+  // Frequency validation
+  let frequency = meter.frequency || 50.0;
+  if (payload.frequency !== undefined) {
+    const parsedF = Number(payload.frequency);
+    if (!Number.isFinite(parsedF) || isNaN(parsedF)) {
+      throw new IngestionError(400, `Validation failed: 'frequency' must be a valid number, received: ${payload.frequency}`);
+    }
+    if (parsedF < 40.0 || parsedF > 75.0) {
+      throw new IngestionError(400, `Validation failed: 'frequency' (${parsedF}Hz) must be within 40Hz - 75Hz`);
+    }
+    frequency = Math.round(parsedF * 100) / 100;
+  }
+
+  // Relay State validation
+  let relayState = meter.relayState;
+  if (payload.relayState !== undefined) {
+    if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
+      throw new IngestionError(400, `Validation failed: 'relayState' must be 'ON' or 'OFF', received: ${payload.relayState}`);
+    }
+    relayState = payload.relayState;
+  }
+
+  // Energy validation
+  let energy = meter.totalEnergy;
+  if (payload.energy !== undefined) {
+    const parsedE = Number(payload.energy);
+    if (!Number.isFinite(parsedE) || isNaN(parsedE) || parsedE < 0) {
+      throw new IngestionError(400, `Validation failed: 'energy' must be a positive number, received: ${payload.energy}`);
+    }
+    energy = Math.round(parsedE * 1000) / 1000;
+  } else {
+    // Increment realistic energy consumption
+    energy = Math.round((meter.totalEnergy + 0.005) * 1000) / 1000;
+  }
+
   const now = new Date().toISOString();
 
-  // If active power or reactive power not provided, calculate from V & I
-  const voltage = Number(payload.voltage) || 230.0;
-  const current = Number(payload.current) || 0.0;
-  const powerFactor = payload.powerFactor !== undefined ? Number(payload.powerFactor) : 0.96;
-  const activePower = payload.activePower !== undefined ? Number(payload.activePower) : Math.round(voltage * current * powerFactor * 10) / 10;
-  
-  // Apparent power S = V * I; Reactive Q = sqrt(S^2 - P^2)
-  const apparentPower = voltage * current;
-  let reactivePower = payload.reactivePower !== undefined ? Number(payload.reactivePower) : 0;
-  if (payload.reactivePower === undefined && apparentPower >= Math.abs(activePower)) {
-    reactivePower = Math.round(Math.sqrt(Math.max(0, (apparentPower * apparentPower) - (activePower * activePower))) * 10) / 10;
-  }
-
-  const frequency = Number(payload.frequency) || 50.0;
-  const relayState: RelayState = payload.relayState || (meter ? meter.relayState : 'ON');
-  const energy = payload.energy !== undefined ? Number(payload.energy) : (meter ? meter.totalEnergy + 0.005 : 12.45);
-
-  const prevSample = meter ? {
+  const prevSample = {
     voltage: meter.voltage,
     current: meter.current,
     activePower: meter.activePower,
     energy: meter.totalEnergy,
     timestamp: meter.updatedAt,
-  } : undefined;
+  };
 
   const sample: TelemetrySample = {
     voltage,
@@ -87,53 +307,33 @@ export function processTelemetryIngest(payload: IngestPayload, ownerUid = 'defau
   // Run Anomaly and Theft Detection Algorithm
   const anomalyResult = analyzeTelemetryForAnomalies(sample);
 
-  if (!meter) {
-    meter = {
-      id: meterId,
-      meterId,
-      ownerUid,
-      name: `ESP32 Meter ${meterId}`,
-      relayState,
-      status: 'ONLINE',
-      apiKey: payload.apiKey || `VP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-      lastHeartbeat: now,
-      latitude: payload.latitude !== undefined ? Number(payload.latitude) : 6.5244,
-      longitude: payload.longitude !== undefined ? Number(payload.longitude) : 3.3792,
-      address: payload.address || 'Victoria Island Substation 4, Lagos',
-      voltage,
-      current,
-      activePower,
-      reactivePower,
-      powerFactor,
-      frequency,
-      totalEnergy: energy,
-      hasAnomaly: anomalyResult.hasAnomaly,
-      anomalyType: anomalyResult.type,
-      anomalySeverity: anomalyResult.severity,
-      anomalyDescription: anomalyResult.hasAnomaly ? anomalyResult.description : 'System normal',
-      createdAt: now,
-      updatedAt: now,
-    };
-  } else {
-    meter.voltage = voltage;
-    meter.current = current;
-    meter.activePower = activePower;
-    meter.reactivePower = reactivePower;
-    meter.powerFactor = powerFactor;
-    meter.frequency = frequency;
-    meter.totalEnergy = energy;
-    meter.status = 'ONLINE';
-    meter.lastHeartbeat = now;
-    meter.updatedAt = now;
-    if (payload.latitude !== undefined) meter.latitude = Number(payload.latitude);
-    if (payload.longitude !== undefined) meter.longitude = Number(payload.longitude);
-    if (payload.address) meter.address = payload.address;
+  // Update Existing Meter
+  meter.voltage = voltage;
+  meter.current = current;
+  meter.activePower = activePower;
+  meter.reactivePower = reactivePower;
+  meter.powerFactor = powerFactor;
+  meter.frequency = frequency;
+  meter.totalEnergy = energy;
+  meter.relayState = relayState;
+  meter.status = 'ONLINE';
+  meter.lastHeartbeat = now;
+  meter.updatedAt = now;
 
-    meter.hasAnomaly = anomalyResult.hasAnomaly;
-    meter.anomalyType = anomalyResult.type;
-    meter.anomalySeverity = anomalyResult.severity;
-    meter.anomalyDescription = anomalyResult.hasAnomaly ? anomalyResult.description : 'System normal';
+  if (payload.latitude !== undefined && Number.isFinite(Number(payload.latitude))) {
+    meter.latitude = Number(payload.latitude);
   }
+  if (payload.longitude !== undefined && Number.isFinite(Number(payload.longitude))) {
+    meter.longitude = Number(payload.longitude);
+  }
+  if (payload.address && typeof payload.address === 'string') {
+    meter.address = payload.address.trim();
+  }
+
+  meter.hasAnomaly = anomalyResult.hasAnomaly;
+  meter.anomalyType = anomalyResult.type;
+  meter.anomalySeverity = anomalyResult.severity;
+  meter.anomalyDescription = anomalyResult.hasAnomaly ? anomalyResult.description : 'System normal';
 
   activeMeters.set(meterId, meter);
 
@@ -157,7 +357,6 @@ export function processTelemetryIngest(payload: IngestPayload, ownerUid = 'defau
 
   const currentLogs = telemetryStore.get(meterId) || [];
   currentLogs.push(log);
-  // Keep last 500 logs per meter to optimize memory
   if (currentLogs.length > 500) {
     currentLogs.shift();
   }
@@ -191,27 +390,10 @@ export function processTelemetryIngest(payload: IngestPayload, ownerUid = 'defau
     if (meterAlerts.length > 100) meterAlerts.pop();
     anomalyStore.set(meterId, meterAlerts);
 
-    // Evaluate notification preferences and trigger email dispatch
+    // Evaluate notification preferences
     const ownerPrefs = userPreferencesStore.get(meter.ownerUid) || userPreferencesStore.get('demo_user');
     if (ownerPrefs && ownerPrefs.emailAlertsEnabled && ownerPrefs.alertEmail) {
-      const severityRanks: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };
-      const currentRank = severityRanks[anomalyResult.severity] || 1;
-      const minRank = severityRanks[ownerPrefs.minimumSeverity] || 3;
-
-      let isTriggerEligible = currentRank >= minRank;
-      if (isTriggerEligible) {
-        if (anomalyResult.type === 'CURRENT_SHUNT_THEFT' || anomalyResult.type === 'UNMETERED_BYPASS' || anomalyResult.type === 'TAMPER_ZERO_READING') {
-          isTriggerEligible = ownerPrefs.notifyCriticalTheft;
-        } else if (anomalyResult.type === 'SURGE_SPIKE') {
-          isTriggerEligible = ownerPrefs.notifyOvercurrentSurge;
-        } else if (anomalyResult.type === 'VOLTAGE_DROP_HIGH_DRAW') {
-          isTriggerEligible = ownerPrefs.notifyVoltageSag;
-        }
-      }
-
-      if (isTriggerEligible) {
-        console.log(`[ALERT NOTIFICATION DISPATCHED] To: ${ownerPrefs.alertEmail} | Severity: ${anomalyResult.severity} | Event: ${anomalyResult.title} on Meter ${meterId}`);
-      }
+      console.log(`[ALERT NOTIFICATION] Meter ${meterId} -> ${ownerPrefs.alertEmail}: ${anomalyResult.title}`);
     }
   }
 
@@ -223,5 +405,6 @@ export function processTelemetryIngest(payload: IngestPayload, ownerUid = 'defau
     anomaly: anomalyResult,
     meter,
     log,
+    timestamp: now,
   };
 }

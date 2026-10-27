@@ -123,27 +123,133 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], (req, res) => {
     const payload = req.body || {};
     const meterId = payload.meterId?.trim();
     if (!meterId) {
-      return res.status(400).json({ error: 'meterId is required' });
+      return res.status(400).json({ success: false, error: "Validation failed: 'meterId' is required" });
     }
 
-    const apiKey = (req.headers['x-api-key'] as string) || payload.apiKey;
+    // STRICT CHECK: Meter MUST already exist
+    const meter = activeMeters.get(meterId);
+    if (!meter) {
+      return res.status(404).json({
+        success: false,
+        error: `Meter '${meterId}' is not registered. Please register the meter in the VoltPulse dashboard before streaming telemetry.`,
+      });
+    }
+
+    // STRICT AUTHENTICATION: API key MUST match
+    const incomingApiKey = ((req.headers['x-api-key'] as string) || payload.apiKey || '').trim();
+    if (!incomingApiKey) {
+      return res.status(401).json({
+        success: false,
+        error: `Authentication failed: Missing API Key for meter '${meterId}'. Include 'X-API-Key' header or 'apiKey' field.`,
+      });
+    }
+
+    if (incomingApiKey !== meter.apiKey) {
+      return res.status(401).json({
+        success: false,
+        error: `Authentication failed: Invalid API key for meter '${meterId}'. Verify your key in Dashboard > Settings.`,
+      });
+    }
+
+    // Handle remote relay toggle
+    if (payload.action === 'relay_toggle' || (payload.relayState && payload.voltage === undefined && payload.current === undefined)) {
+      if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
+        return res.status(400).json({ success: false, error: "relayState must be 'ON' or 'OFF'" });
+      }
+      meter.relayState = payload.relayState;
+      meter.updatedAt = new Date().toISOString();
+      return res.json({ success: true, meterId, relayState: meter.relayState });
+    }
+
+    // Metrics validation
+    if (payload.voltage === undefined && payload.current === undefined && payload.activePower === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed: Telemetry payload must include at least voltage, current, or activePower readings',
+      });
+    }
+
     const now = new Date().toISOString();
 
-    const voltage = Number(payload.voltage) || 230.0;
-    const current = Number(payload.current) || 0.0;
-    const powerFactor = payload.powerFactor !== undefined ? Number(payload.powerFactor) : 0.96;
-    const activePower = payload.activePower !== undefined ? Number(payload.activePower) : Math.round(voltage * current * powerFactor * 10) / 10;
-    
-    const apparent = voltage * current;
-    let reactivePower = payload.reactivePower !== undefined ? Number(payload.reactivePower) : 0;
-    if (payload.reactivePower === undefined && apparent >= Math.abs(activePower)) {
-      reactivePower = Math.round(Math.sqrt(Math.max(0, apparent * apparent - activePower * activePower)) * 10) / 10;
+    let voltage = meter.voltage;
+    if (payload.voltage !== undefined) {
+      const parsedV = Number(payload.voltage);
+      if (!Number.isFinite(parsedV) || isNaN(parsedV) || parsedV < 0 || parsedV > 600) {
+        return res.status(400).json({ success: false, error: `'voltage' must be a valid number between 0V and 600V` });
+      }
+      voltage = Math.round(parsedV * 10) / 10;
     }
 
-    const frequency = Number(payload.frequency) || 50.0;
-    let meter = activeMeters.get(meterId);
-    const relayState = payload.relayState || (meter ? meter.relayState : 'ON');
-    const energy = payload.energy !== undefined ? Number(payload.energy) : (meter ? Math.round((meter.totalEnergy + 0.005) * 1000) / 1000 : 12.45);
+    let current = meter.current;
+    if (payload.current !== undefined) {
+      const parsedI = Number(payload.current);
+      if (!Number.isFinite(parsedI) || isNaN(parsedI) || parsedI < 0 || parsedI > 500) {
+        return res.status(400).json({ success: false, error: `'current' must be a valid number between 0A and 500A` });
+      }
+      current = Math.round(parsedI * 100) / 100;
+    }
+
+    let powerFactor = meter.powerFactor || 0.96;
+    if (payload.powerFactor !== undefined) {
+      const parsedPF = Number(payload.powerFactor);
+      if (!Number.isFinite(parsedPF) || isNaN(parsedPF) || parsedPF < -1.0 || parsedPF > 1.0) {
+        return res.status(400).json({ success: false, error: `'powerFactor' must be between -1.0 and 1.0` });
+      }
+      powerFactor = Math.round(parsedPF * 100) / 100;
+    }
+
+    let activePower: number;
+    if (payload.activePower !== undefined) {
+      const parsedP = Number(payload.activePower);
+      if (!Number.isFinite(parsedP) || isNaN(parsedP) || parsedP < -50000 || parsedP > 200000) {
+        return res.status(400).json({ success: false, error: `'activePower' must be a valid number` });
+      }
+      activePower = Math.round(parsedP * 10) / 10;
+    } else {
+      activePower = Math.round(voltage * current * powerFactor * 10) / 10;
+    }
+
+    const apparent = Math.abs(voltage * current);
+    let reactivePower: number;
+    if (payload.reactivePower !== undefined) {
+      const parsedQ = Number(payload.reactivePower);
+      if (!Number.isFinite(parsedQ) || isNaN(parsedQ)) {
+        return res.status(400).json({ success: false, error: `'reactivePower' must be a valid number` });
+      }
+      reactivePower = Math.round(parsedQ * 10) / 10;
+    } else if (apparent >= Math.abs(activePower)) {
+      reactivePower = Math.round(Math.sqrt(Math.max(0, apparent * apparent - activePower * activePower)) * 10) / 10;
+    } else {
+      reactivePower = 0;
+    }
+
+    let frequency = meter.frequency || 50.0;
+    if (payload.frequency !== undefined) {
+      const parsedF = Number(payload.frequency);
+      if (!Number.isFinite(parsedF) || isNaN(parsedF) || parsedF < 40.0 || parsedF > 75.0) {
+        return res.status(400).json({ success: false, error: `'frequency' must be between 40Hz and 75Hz` });
+      }
+      frequency = Math.round(parsedF * 100) / 100;
+    }
+
+    let relayState = meter.relayState;
+    if (payload.relayState !== undefined) {
+      if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
+        return res.status(400).json({ success: false, error: `'relayState' must be 'ON' or 'OFF'` });
+      }
+      relayState = payload.relayState;
+    }
+
+    let energy = meter.totalEnergy;
+    if (payload.energy !== undefined) {
+      const parsedE = Number(payload.energy);
+      if (!Number.isFinite(parsedE) || isNaN(parsedE) || parsedE < 0) {
+        return res.status(400).json({ success: false, error: `'energy' must be a positive number` });
+      }
+      energy = Math.round(parsedE * 1000) / 1000;
+    } else {
+      energy = Math.round((meter.totalEnergy + 0.005) * 1000) / 1000;
+    }
 
     let hasAnomaly = false;
     let anomalyType = 'NONE';
@@ -171,51 +277,21 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], (req, res) => {
       recommendation = 'Check feeder cable.';
     }
 
-    if (!meter) {
-      meter = {
-        id: meterId,
-        meterId,
-        ownerUid: payload.ownerUid || 'demo_user',
-        name: payload.name || `ESP32 Meter ${meterId}`,
-        relayState,
-        status: 'ONLINE',
-        apiKey: apiKey || `VP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-        lastHeartbeat: now,
-        latitude: payload.latitude !== undefined ? Number(payload.latitude) : 6.5244,
-        longitude: payload.longitude !== undefined ? Number(payload.longitude) : 3.3792,
-        address: payload.address || 'Smart Grid Connection Point',
-        voltage,
-        current,
-        activePower,
-        reactivePower,
-        powerFactor,
-        frequency,
-        totalEnergy: energy,
-        hasAnomaly,
-        anomalyType,
-        anomalySeverity,
-        anomalyDescription: anomalyDesc,
-        createdAt: now,
-        updatedAt: now,
-      };
-    } else {
-      meter.voltage = voltage;
-      meter.current = current;
-      meter.activePower = activePower;
-      meter.reactivePower = reactivePower;
-      meter.powerFactor = powerFactor;
-      meter.frequency = frequency;
-      meter.totalEnergy = energy;
-      meter.relayState = relayState;
-      meter.status = 'ONLINE';
-      meter.lastHeartbeat = now;
-      meter.updatedAt = now;
-      if (apiKey) meter.apiKey = apiKey;
-      meter.hasAnomaly = hasAnomaly;
-      meter.anomalyType = anomalyType;
-      meter.anomalySeverity = anomalySeverity;
-      meter.anomalyDescription = anomalyDesc;
-    }
+    meter.voltage = voltage;
+    meter.current = current;
+    meter.activePower = activePower;
+    meter.reactivePower = reactivePower;
+    meter.powerFactor = powerFactor;
+    meter.frequency = frequency;
+    meter.totalEnergy = energy;
+    meter.relayState = relayState;
+    meter.status = 'ONLINE';
+    meter.lastHeartbeat = now;
+    meter.updatedAt = now;
+    meter.hasAnomaly = hasAnomaly;
+    meter.anomalyType = anomalyType;
+    meter.anomalySeverity = anomalySeverity;
+    meter.anomalyDescription = anomalyDesc;
 
     activeMeters.set(meterId, meter);
 
@@ -375,6 +451,52 @@ app.get(['/api/meters/:meterId', '/meters/:meterId'], (req, res) => {
   const meter = activeMeters.get(req.params.meterId);
   if (!meter) return res.status(404).json({ error: 'Meter not found' });
   res.json({ meter });
+});
+
+// Rotate API key
+app.post(['/api/meters/:meterId/rotate-key', '/meters/:meterId/rotate-key'], (req, res) => {
+  seedDemoData();
+  const meter = activeMeters.get(req.params.meterId);
+  if (!meter) return res.status(404).json({ success: false, error: 'Meter not found' });
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const seg = (n: number) => {
+    let s = '';
+    for (let i = 0; i < n; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
+    return s;
+  };
+  const newKey = req.body?.apiKey?.trim() || `VP-${seg(4)}-${seg(4)}-${seg(4)}`;
+  meter.apiKey = newKey;
+  meter.updatedAt = new Date().toISOString();
+  activeMeters.set(req.params.meterId, meter);
+  res.json({ success: true, meterId: req.params.meterId, apiKey: newKey, meter });
+});
+
+// Delete meter
+app.delete(['/api/meters/:meterId', '/meters/:meterId'], (req, res) => {
+  seedDemoData();
+  const targetId = req.params.meterId;
+  if (!activeMeters.has(targetId)) {
+    return res.status(404).json({ success: false, error: `Meter '${targetId}' not found` });
+  }
+  activeMeters.delete(targetId);
+  telemetryStore.delete(targetId);
+  anomalyStore.delete(targetId);
+  res.json({ success: true, meterId: targetId, message: `Meter '${targetId}' deleted successfully.` });
+});
+
+// Update meter
+app.put(['/api/meters/:meterId', '/meters/:meterId'], (req, res) => {
+  seedDemoData();
+  const meter = activeMeters.get(req.params.meterId);
+  if (!meter) return res.status(404).json({ success: false, error: 'Meter not found' });
+  const body = req.body || {};
+  if (body.name) meter.name = body.name.trim();
+  if (body.address) meter.address = body.address.trim();
+  if (body.latitude !== undefined) meter.latitude = Number(body.latitude);
+  if (body.longitude !== undefined) meter.longitude = Number(body.longitude);
+  meter.updatedAt = new Date().toISOString();
+  activeMeters.set(req.params.meterId, meter);
+  res.json({ success: true, meter });
 });
 
 // 6. Telemetry History

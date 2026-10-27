@@ -8,6 +8,7 @@ import {
   doc, 
   updateDoc, 
   setDoc,
+  deleteDoc,
   orderBy,
   limit
 } from 'firebase/firestore';
@@ -32,6 +33,7 @@ import { AnomalyShieldView } from './components/AnomalyShieldView';
 import { HardwareWorkbench } from './components/HardwareWorkbench';
 import { LinkMeterModal } from './components/LinkMeterModal';
 import { SettingsModal } from './components/SettingsModal';
+import { SettingsTab } from './components/SettingsTab';
 import { AuthPage } from './components/AuthPage';
 import { MeterOnboardingModal } from './components/MeterOnboardingModal';
 import { Activity, ShieldCheck, Zap, Radio, AlertCircle, Plus, Cpu } from 'lucide-react';
@@ -44,7 +46,7 @@ export default function App() {
   const [activeMeter, setActiveMeter] = useState<Meter | null>(null);
   const [telemetryLogs, setTelemetryLogs] = useState<TelemetryLog[]>([]);
   const [anomalies, setAnomalies] = useState<AnomalyAlert[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'map' | 'anomalies' | 'workbench'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'map' | 'anomalies' | 'workbench' | 'settings'>('dashboard');
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isRelayLoading, setIsRelayLoading] = useState(false);
@@ -585,6 +587,134 @@ export default function App() {
     }
   };
 
+  // Delete Meter Handler
+  const handleDeleteMeter = async (meterId: string) => {
+    try {
+      // 1. Delete from backend memory / API
+      await fetch(`/api/meters/${encodeURIComponent(meterId)}`, {
+        method: 'DELETE',
+      });
+      // Also notify telemetry/ingest in case of Vercel serverless
+      try {
+        await fetch('/api/telemetry/ingest?action=delete_meter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ meterId }),
+        });
+      } catch {}
+
+      // 2. Delete from Firestore if authenticated
+      if (user) {
+        try {
+          await deleteDoc(doc(db, 'meters', meterId));
+        } catch (fsErr) {
+          console.warn('Firestore delete meter notice:', fsErr);
+        }
+      }
+
+      // 3. Update local state
+      const remainingMeters = meters.filter(m => m.meterId !== meterId);
+      setMeters(remainingMeters);
+      if (activeMeter?.meterId === meterId) {
+        const nextMeter = remainingMeters.length > 0 ? remainingMeters[0] : null;
+        setActiveMeter(nextMeter);
+        if (!nextMeter) {
+          setActiveTab('dashboard');
+        }
+      }
+    } catch (err: any) {
+      console.error('Delete meter error:', err);
+      throw new Error(err?.message || 'Failed to delete meter');
+    }
+  };
+
+  // Rotate / Change API Key Handler
+  const handleRotateApiKey = async (meterId: string, customKey?: string): Promise<string> => {
+    try {
+      let newKey = '';
+      const res = await fetch(`/api/meters/${encodeURIComponent(meterId)}/rotate-key`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: customKey }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        newKey = data.apiKey;
+      } else {
+        // Fallback Vercel ingest endpoint
+        const fbRes = await fetch('/api/telemetry/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'rotate_key', meterId, apiKey: customKey }),
+        });
+        if (fbRes.ok) {
+          const fbData = await fbRes.json();
+          newKey = fbData.apiKey;
+        }
+      }
+
+      if (!newKey) {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        const seg = (n: number) => {
+          let s = '';
+          for (let i = 0; i < n; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
+          return s;
+        };
+        newKey = customKey || `VP-${seg(4)}-${seg(4)}-${seg(4)}`;
+      }
+
+      // Update in local state
+      setMeters(prev => prev.map(m => m.meterId === meterId ? { ...m, apiKey: newKey } : m));
+      setActiveMeter(prev => prev && prev.meterId === meterId ? { ...prev, apiKey: newKey } : prev);
+
+      // Update in Firestore
+      if (user) {
+        try {
+          await updateDoc(doc(db, 'meters', meterId), {
+            apiKey: newKey,
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (fsErr) {
+          console.warn('Firestore rotate key notice:', fsErr);
+        }
+      }
+
+      return newKey;
+    } catch (err: any) {
+      console.error('Rotate API key error:', err);
+      throw new Error(err?.message || 'Failed to rotate API key');
+    }
+  };
+
+  // Update Meter Metadata Handler
+  const handleUpdateMeter = async (meterId: string, updates: Partial<Meter>) => {
+    try {
+      await fetch(`/api/meters/${encodeURIComponent(meterId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+
+      setMeters(prev => prev.map(m => m.meterId === meterId ? { ...m, ...updates } : m));
+      setActiveMeter(prev => prev && prev.meterId === meterId ? { ...prev, ...updates } : prev);
+
+      if (user) {
+        try {
+          await updateDoc(doc(db, 'meters', meterId), {
+            ...updates,
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (fsErr) {
+          console.warn('Firestore update meter notice:', fsErr);
+        }
+      }
+    } catch (err: any) {
+      console.error('Update meter error:', err);
+      throw new Error(err?.message || 'Failed to update meter');
+    }
+  };
+
   // Telemetry injection from Hardware Workbench
   const handleSendTelemetry = async (sampleData: any) => {
     if (!activeMeter) return;
@@ -719,7 +849,7 @@ export default function App() {
         activeMeter={activeMeter}
         onSelectMeter={(meter) => setActiveMeter(meter)}
         onOpenLinkModal={() => setIsLinkModalOpen(true)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenSettings={() => setActiveTab('settings')}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         isOnline={isOnline}
@@ -856,7 +986,33 @@ export default function App() {
                 />
               </div>
             )}
+
+            {/* TAB 6: Meter & Security Settings */}
+            {activeTab === 'settings' && (
+              <SettingsTab
+                user={user}
+                meters={meters}
+                activeMeter={activeMeter}
+                onSelectMeter={(meter) => setActiveMeter(meter)}
+                onUpdateMeter={handleUpdateMeter}
+                onRotateApiKey={handleRotateApiKey}
+                onDeleteMeter={handleDeleteMeter}
+              />
+            )}
           </>
+        )}
+
+        {/* Allow Settings Tab access even if no active meter */}
+        {activeTab === 'settings' && !activeMeter && (
+          <SettingsTab
+            user={user}
+            meters={meters}
+            activeMeter={null}
+            onSelectMeter={(meter) => setActiveMeter(meter)}
+            onUpdateMeter={handleUpdateMeter}
+            onRotateApiKey={handleRotateApiKey}
+            onDeleteMeter={handleDeleteMeter}
+          />
         )}
 
       </main>

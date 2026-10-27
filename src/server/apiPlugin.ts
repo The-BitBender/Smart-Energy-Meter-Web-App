@@ -1,6 +1,17 @@
 import type { Plugin, ViteDevServer } from 'vite';
 import { IncomingMessage, ServerResponse } from 'http';
-import { activeMeters, anomalyStore, processTelemetryIngest, telemetryStore, userPreferencesStore } from './telemetryHandler';
+import { 
+  activeMeters, 
+  anomalyStore, 
+  processTelemetryIngest, 
+  telemetryStore, 
+  userPreferencesStore,
+  deleteMeter,
+  rotateMeterApiKey,
+  updateMeter,
+  IngestionError,
+  generateApiKey
+} from './telemetryHandler';
 import { Meter, NotificationPreferences } from '../types/energy';
 
 // Helper to seed realistic demo data on initialization
@@ -45,7 +56,6 @@ function ensureDemoMeters() {
 
   for (let i = 48; i >= 0; i--) {
     const time = new Date(now - i * 30 * 60 * 1000).toISOString();
-    // Simulate typical diurnal load curve
     const hour = (new Date(time)).getHours();
     let baseCurrent = 5.0;
     if (hour >= 8 && hour <= 18) {
@@ -155,23 +165,17 @@ export function apiMiddlewarePlugin(): Plugin {
           if (cleanPath === '/api/telemetry/ingest' && req.method === 'POST') {
             const body = await readJsonBody(req);
             const apiKeyHeader = req.headers['x-api-key'] as string;
-            if (apiKeyHeader && !body.apiKey) {
-              body.apiKey = apiKeyHeader;
-            }
 
-            // Check if relay toggle command
-            if (body.action === 'relay_toggle' || (body.relayState && body.voltage === undefined && body.current === undefined)) {
-              let meter = activeMeters.get(body.meterId);
-              if (meter) {
-                meter.relayState = body.relayState;
-                meter.updatedAt = new Date().toISOString();
-                activeMeters.set(body.meterId, meter);
-              }
-              return sendJson(res, 200, { success: true, meterId: body.meterId, relayState: body.relayState });
+            try {
+              const result = processTelemetryIngest(body, apiKeyHeader);
+              return sendJson(res, 200, result);
+            } catch (ingestErr: any) {
+              const status = ingestErr instanceof IngestionError ? ingestErr.statusCode : 400;
+              return sendJson(res, status, { 
+                success: false, 
+                error: ingestErr.message || 'Telemetry ingestion failed' 
+              });
             }
-
-            const result = processTelemetryIngest(body);
-            return sendJson(res, 200, result);
           }
 
           // Fast telemetry query for live UI sync
@@ -226,10 +230,10 @@ export function apiMiddlewarePlugin(): Plugin {
             const body = await readJsonBody(req);
             const meter = activeMeters.get(meterId);
             if (!meter) {
-              return sendJson(res, 404, { error: 'Meter not found' });
+              return sendJson(res, 404, { success: false, error: `Meter '${meterId}' not found` });
             }
             if (body.relayState !== 'ON' && body.relayState !== 'OFF') {
-              return sendJson(res, 400, { error: 'relayState must be ON or OFF' });
+              return sendJson(res, 400, { success: false, error: "relayState must be 'ON' or 'OFF'" });
             }
             meter.relayState = body.relayState;
             meter.updatedAt = new Date().toISOString();
@@ -237,18 +241,66 @@ export function apiMiddlewarePlugin(): Plugin {
             return sendJson(res, 200, { success: true, meterId, relayState: meter.relayState });
           }
 
-          // 5. Get all meters (GET /api/meters)
+          // 5. Rotate/Change Meter API Key (POST /api/meters/:id/rotate-key)
+          const rotateKeyMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)\/rotate-key$/);
+          if (rotateKeyMatch && req.method === 'POST') {
+            const meterId = decodeURIComponent(rotateKeyMatch[1]);
+            const body = await readJsonBody(req);
+            try {
+              const newKey = rotateMeterApiKey(meterId, body?.apiKey);
+              const meter = activeMeters.get(meterId);
+              return sendJson(res, 200, { 
+                success: true, 
+                meterId, 
+                apiKey: newKey, 
+                meter 
+              });
+            } catch (err: any) {
+              const status = err instanceof IngestionError ? err.statusCode : 400;
+              return sendJson(res, status, { success: false, error: err.message });
+            }
+          }
+
+          // 6. Delete Meter (DELETE /api/meters/:id)
+          const deleteMeterMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)$/);
+          if (deleteMeterMatch && req.method === 'DELETE') {
+            const meterId = decodeURIComponent(deleteMeterMatch[1]);
+            const deleted = deleteMeter(meterId);
+            if (!deleted) {
+              return sendJson(res, 404, { success: false, error: `Meter '${meterId}' not found` });
+            }
+            return sendJson(res, 200, { 
+              success: true, 
+              meterId, 
+              message: `Meter '${meterId}' and associated logs were permanently deleted.` 
+            });
+          }
+
+          // 7. Update Meter (PUT /api/meters/:id)
+          if (deleteMeterMatch && req.method === 'PUT') {
+            const meterId = decodeURIComponent(deleteMeterMatch[1]);
+            const body = await readJsonBody(req);
+            try {
+              const updated = updateMeter(meterId, body);
+              return sendJson(res, 200, { success: true, meter: updated });
+            } catch (err: any) {
+              const status = err instanceof IngestionError ? err.statusCode : 400;
+              return sendJson(res, status, { success: false, error: err.message });
+            }
+          }
+
+          // 8. Get all meters (GET /api/meters)
           if (cleanPath === '/api/meters' && req.method === 'GET') {
             const list = Array.from(activeMeters.values());
             return sendJson(res, 200, { meters: list });
           }
 
-          // 6. Register or Link New Meter (POST /api/meters)
+          // 9. Register or Link New Meter (POST /api/meters)
           if (cleanPath === '/api/meters' && req.method === 'POST') {
             const body = await readJsonBody(req);
             const meterId = body.meterId?.trim();
             if (!meterId) {
-              return sendJson(res, 400, { error: 'meterId is required' });
+              return sendJson(res, 400, { success: false, error: 'meterId is required' });
             }
             const now = new Date().toISOString();
             const newMeter: Meter = {
@@ -258,7 +310,7 @@ export function apiMiddlewarePlugin(): Plugin {
               name: body.name?.trim() || `ESP32 Meter ${meterId}`,
               relayState: 'ON',
               status: 'ONLINE',
-              apiKey: body.apiKey || `VP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+              apiKey: body.apiKey?.trim() || generateApiKey(),
               lastHeartbeat: now,
               latitude: Number(body.latitude) || 6.5244,
               longitude: Number(body.longitude) || 3.3792,
@@ -281,18 +333,17 @@ export function apiMiddlewarePlugin(): Plugin {
             return sendJson(res, 201, { success: true, meter: newMeter });
           }
 
-          // 7. Get single meter (GET /api/meters/:id)
-          const meterDetailMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)$/);
-          if (meterDetailMatch && req.method === 'GET') {
-            const meterId = decodeURIComponent(meterDetailMatch[1]);
+          // 10. Get single meter (GET /api/meters/:id)
+          if (deleteMeterMatch && req.method === 'GET') {
+            const meterId = decodeURIComponent(deleteMeterMatch[1]);
             const meter = activeMeters.get(meterId);
             if (!meter) {
-              return sendJson(res, 404, { error: 'Meter not found' });
+              return sendJson(res, 404, { success: false, error: `Meter '${meterId}' not found` });
             }
             return sendJson(res, 200, { meter });
           }
 
-          // 8. Get telemetry history (GET /api/meters/:id/telemetry)
+          // 11. Get telemetry history (GET /api/meters/:id/telemetry)
           const meterTelemetryMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)\/telemetry$/);
           if (meterTelemetryMatch && req.method === 'GET') {
             const meterId = decodeURIComponent(meterTelemetryMatch[1]);
@@ -300,7 +351,7 @@ export function apiMiddlewarePlugin(): Plugin {
             return sendJson(res, 200, { logs });
           }
 
-          // 9. Get anomalies (GET /api/meters/:id/anomalies)
+          // 12. Get anomalies (GET /api/meters/:id/anomalies)
           const meterAnomaliesMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)\/anomalies$/);
           if (meterAnomaliesMatch && req.method === 'GET') {
             const meterId = decodeURIComponent(meterAnomaliesMatch[1]);
@@ -308,7 +359,7 @@ export function apiMiddlewarePlugin(): Plugin {
             return sendJson(res, 200, { alerts });
           }
 
-          // 10. Resolve anomaly alert (POST /api/meters/:id/anomalies/:alertId/resolve)
+          // 13. Resolve anomaly alert (POST /api/meters/:id/anomalies/:alertId/resolve)
           const alertResolveMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)\/anomalies\/([^\/]+)\/resolve$/);
           if (alertResolveMatch && req.method === 'POST') {
             const meterId = decodeURIComponent(alertResolveMatch[1]);
@@ -328,7 +379,7 @@ export function apiMiddlewarePlugin(): Plugin {
             return sendJson(res, 200, { success: true, alert });
           }
 
-          // 11. Get User Notification Settings (GET /api/users/:userId/settings)
+          // 14. Get User Notification Settings (GET /api/users/:userId/settings)
           const userSettingsGetMatch = cleanPath.match(/^\/api\/users\/([^\/]+)\/settings$/);
           if (userSettingsGetMatch && req.method === 'GET') {
             const userId = decodeURIComponent(userSettingsGetMatch[1]);
@@ -346,7 +397,7 @@ export function apiMiddlewarePlugin(): Plugin {
             return sendJson(res, 200, { preferences });
           }
 
-          // 12. Save User Notification Settings (POST /api/users/:userId/settings)
+          // 15. Save User Notification Settings (POST /api/users/:userId/settings)
           const userSettingsPostMatch = cleanPath.match(/^\/api\/users\/([^\/]+)\/settings$/);
           if (userSettingsPostMatch && req.method === 'POST') {
             const userId = decodeURIComponent(userSettingsPostMatch[1]);
@@ -367,10 +418,10 @@ export function apiMiddlewarePlugin(): Plugin {
           }
 
           // Any unmatched /api route must return JSON 404, never fallback to index.html
-          return sendJson(res, 404, { error: `Endpoint not found: ${req.method} ${cleanPath}` });
+          return sendJson(res, 404, { success: false, error: `Endpoint not found: ${req.method} ${cleanPath}` });
         } catch (err: any) {
           console.error('[API Server Error]', err);
-          return sendJson(res, 500, { error: err.message || 'Internal server error' });
+          return sendJson(res, 500, { success: false, error: err.message || 'Internal server error' });
         }
       });
     },

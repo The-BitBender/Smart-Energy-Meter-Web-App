@@ -26,8 +26,8 @@ interface NavbarProps {
   onSelectMeter: (meter: Meter) => void;
   onOpenLinkModal: () => void;
   onOpenSettings: () => void;
-  activeTab: 'dashboard' | 'analytics' | 'map' | 'anomalies' | 'workbench';
-  setActiveTab: (tab: 'dashboard' | 'analytics' | 'map' | 'anomalies' | 'workbench') => void;
+  activeTab: 'dashboard' | 'analytics' | 'map' | 'anomalies' | 'workbench' | 'settings';
+  setActiveTab: (tab: 'dashboard' | 'analytics' | 'map' | 'anomalies' | 'workbench' | 'settings') => void;
   isOnline: boolean;
   heartbeatAgeSec: number;
 }
@@ -235,6 +235,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Cpu className="w-3.5 h-3.5" />
               <span>ESP32 Workbench</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
+                activeTab === 'settings'
+                  ? 'bg-white text-[#005149] shadow-sm font-extrabold'
+                  : 'text-teal-100 hover:text-white hover:bg-white/10'
+              }`}
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>Settings</span>
+            </button>
           </nav>
 
           {/* Controls: Alert Settings & User Profile / Google Sign-in */}
@@ -384,11 +396,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span>ESP32</span>
         </button>
         <button
-          onClick={onOpenSettings}
-          className="px-3 py-1.5 rounded text-xs font-bold flex items-center space-x-1 text-teal-200 hover:text-white"
+          onClick={() => setActiveTab('settings')}
+          className={`px-3 py-1.5 rounded text-xs font-bold flex items-center space-x-1 ${
+            activeTab === 'settings' ? 'text-[#005149] bg-white' : 'text-teal-200'
+          }`}
         >
           <Settings className="w-3.5 h-3.5" />
-          <span>Alerts</span>
+          <span>Settings</span>
         </button>
       </div>
     </header>

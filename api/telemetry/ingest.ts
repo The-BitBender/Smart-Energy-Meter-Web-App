@@ -1,5 +1,5 @@
 // Standalone, zero-dependency Vercel Serverless Function for ESP32 Telemetry Ingestion
-// Directly handles POST /api/telemetry/ingest
+// Handles POST, GET, DELETE /api/telemetry/ingest
 
 export interface TelemetrySample {
   voltage: number;
@@ -154,6 +154,16 @@ const globalMeters = new Map<string, any>();
 const globalLogs = new Map<string, any[]>();
 const globalAnomalies = new Map<string, any[]>();
 
+export function generateKey(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const seg = (n: number) => {
+    let s = '';
+    for (let i = 0; i < n; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
+    return s;
+  };
+  return `VP-${seg(4)}-${seg(4)}-${seg(4)}`;
+}
+
 // Resilient body parser that supports pre-parsed JSON, raw strings, and streams
 async function parseRequestBody(req: any): Promise<any> {
   if (req.body) {
@@ -187,7 +197,7 @@ function sendResponse(res: any, statusCode: number, data: any) {
   res.statusCode = statusCode;
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
   res.end(JSON.stringify(data));
 }
@@ -230,7 +240,7 @@ export default async function handler(req: any, res: any) {
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
     res.end();
     return;
@@ -238,13 +248,34 @@ export default async function handler(req: any, res: any) {
 
   seedInitialDemoMeter();
 
+  const host = req.headers.host || 'localhost';
+  const parsedUrl = new URL(req.url, `http://${host}`);
+  const queryMeterId = parsedUrl.searchParams.get('meterId')?.trim();
+  const action = parsedUrl.searchParams.get('action');
+
+  // Handle DELETE request to delete a meter
+  if (req.method === 'DELETE' || (req.method === 'POST' && action === 'delete_meter')) {
+    const payload = req.method === 'POST' ? await parseRequestBody(req) : {};
+    const targetMeterId = queryMeterId || payload.meterId;
+    if (!targetMeterId) {
+      return sendResponse(res, 400, { success: false, error: 'meterId is required for deletion' });
+    }
+    if (!globalMeters.has(targetMeterId)) {
+      return sendResponse(res, 404, { success: false, error: `Meter '${targetMeterId}' not found` });
+    }
+    globalMeters.delete(targetMeterId);
+    globalLogs.delete(targetMeterId);
+    globalAnomalies.delete(targetMeterId);
+    return sendResponse(res, 200, {
+      success: true,
+      meterId: targetMeterId,
+      message: `Meter '${targetMeterId}' deleted successfully`,
+    });
+  }
+
   // 1. GET requests: Query live meter status, logs, or list of meters
   if (req.method === 'GET') {
     try {
-      const host = req.headers.host || 'localhost';
-      const parsedUrl = new URL(req.url, `http://${host}`);
-      const queryMeterId = parsedUrl.searchParams.get('meterId')?.trim();
-      const action = parsedUrl.searchParams.get('action');
       const isAll = parsedUrl.searchParams.get('all') === 'true' || (!queryMeterId && !action);
 
       // Fast relay status poll for hardware ESP32
@@ -284,92 +315,228 @@ export default async function handler(req: any, res: any) {
         timestamp: new Date().toISOString(),
       });
     } catch (err: any) {
-      return sendResponse(res, 500, { error: err?.message || 'Failed to query telemetry state' });
+      return sendResponse(res, 500, { success: false, error: err?.message || 'Failed to query telemetry state' });
     }
   }
 
   if (req.method !== 'POST') {
-    return sendResponse(res, 405, { error: 'Method Not Allowed. Use GET or POST.' });
+    return sendResponse(res, 405, { success: false, error: 'Method Not Allowed. Use GET, POST, or DELETE.' });
   }
 
   try {
     const payload = await parseRequestBody(req);
     const meterId = payload.meterId?.trim();
     if (!meterId) {
-      return sendResponse(res, 400, { error: 'meterId is required in request body' });
+      return sendResponse(res, 400, { success: false, error: "Validation failed: 'meterId' is required in request body" });
     }
 
     const now = new Date().toISOString();
 
+    // Check if this is an explicit meter registration from UI
+    if (payload.action === 'register_meter') {
+      const newMeter = {
+        id: meterId,
+        meterId,
+        ownerUid: payload.ownerUid || 'demo_user',
+        name: payload.name || `ESP32 Meter ${meterId}`,
+        relayState: 'ON',
+        status: 'ONLINE',
+        apiKey: payload.apiKey?.trim() || generateKey(),
+        lastHeartbeat: now,
+        latitude: Number(payload.latitude) || 6.5244,
+        longitude: Number(payload.longitude) || 3.3792,
+        address: payload.address || 'Smart Grid Connection Point',
+        voltage: 230.0,
+        current: 0.0,
+        activePower: 0.0,
+        reactivePower: 0.0,
+        powerFactor: 0.98,
+        frequency: 50.0,
+        totalEnergy: 0.0,
+        hasAnomaly: false,
+        anomalyType: 'NONE',
+        anomalySeverity: 'LOW',
+        anomalyDescription: 'Newly registered meter',
+        createdAt: now,
+        updatedAt: now,
+      };
+      globalMeters.set(meterId, newMeter);
+      return sendResponse(res, 201, { success: true, meter: newMeter });
+    }
+
+    // Check if this is an API key rotation request
+    if (payload.action === 'rotate_key') {
+      const meter = globalMeters.get(meterId);
+      if (!meter) {
+        return sendResponse(res, 404, { success: false, error: `Meter '${meterId}' not found` });
+      }
+      const newKey = payload.apiKey?.trim() || generateKey();
+      meter.apiKey = newKey;
+      meter.updatedAt = now;
+      globalMeters.set(meterId, meter);
+      return sendResponse(res, 200, { success: true, meterId, apiKey: newKey, meter });
+    }
+
+    // STRICT CHECK: Meter MUST exist in database / registry. DO NOT AUTO-CREATE!
+    const existingMeter = globalMeters.get(meterId);
+    if (!existingMeter) {
+      return sendResponse(res, 404, {
+        success: false,
+        error: `Meter '${meterId}' is not registered. Please register the meter in the VoltPulse dashboard before streaming telemetry.`,
+      });
+    }
+
+    // STRICT AUTHENTICATION: API Key MUST be provided and MUST match
+    const incomingApiKey = ((req.headers['x-api-key'] as string) || payload.apiKey || '').trim();
+    if (!incomingApiKey) {
+      return sendResponse(res, 401, {
+        success: false,
+        error: `Authentication failed: Missing API Key for meter '${meterId}'. Include 'X-API-Key' header or 'apiKey' field.`,
+      });
+    }
+
+    if (incomingApiKey !== existingMeter.apiKey) {
+      return sendResponse(res, 401, {
+        success: false,
+        error: `Authentication failed: Invalid API key for meter '${meterId}'. Verify your key in Dashboard > Settings.`,
+      });
+    }
+
     // Check if this is a remote relay toggle command
     if (payload.action === 'relay_toggle' || (payload.relayState && payload.voltage === undefined && payload.current === undefined)) {
-      let meter = globalMeters.get(meterId);
-      if (!meter) {
-        meter = {
-          id: meterId,
-          meterId,
-          ownerUid: payload.ownerUid || 'demo_user',
-          name: `ESP32 Meter ${meterId}`,
-          relayState: payload.relayState,
-          status: 'ONLINE',
-          apiKey: `VP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-          lastHeartbeat: now,
-          latitude: 6.5244,
-          longitude: 3.3792,
-          address: 'Smart Grid Connection Point',
-          voltage: 230.0,
-          current: 0.0,
-          activePower: 0.0,
-          reactivePower: 0.0,
-          powerFactor: 0.98,
-          frequency: 50.0,
-          totalEnergy: 0.0,
-          hasAnomaly: false,
-          anomalyType: 'NONE',
-          anomalySeverity: 'LOW',
-          anomalyDescription: 'System normal',
-          createdAt: now,
-          updatedAt: now,
-        };
-      } else {
-        meter.relayState = payload.relayState;
-        meter.updatedAt = now;
+      if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
+        return sendResponse(res, 400, { success: false, error: "relayState must be 'ON' or 'OFF'" });
       }
-      globalMeters.set(meterId, meter);
+      existingMeter.relayState = payload.relayState;
+      existingMeter.updatedAt = now;
+      globalMeters.set(meterId, existingMeter);
 
       return sendResponse(res, 200, {
         success: true,
         meterId,
-        relayState: meter.relayState,
+        relayState: existingMeter.relayState,
         updatedAt: now,
       });
     }
 
-    const apiKey = (req.headers['x-api-key'] as string) || payload.apiKey;
-
-    const voltage = Number(payload.voltage) || 230.0;
-    const current = Number(payload.current) || 0.0;
-    const powerFactor = payload.powerFactor !== undefined ? Number(payload.powerFactor) : 0.96;
-    const activePower = payload.activePower !== undefined ? Number(payload.activePower) : Math.round(voltage * current * powerFactor * 10) / 10;
-    
-    const apparentPower = Math.abs(voltage * current);
-    let reactivePower = payload.reactivePower !== undefined ? Number(payload.reactivePower) : 0;
-    if (payload.reactivePower === undefined && apparentPower >= Math.abs(activePower)) {
-      reactivePower = Math.round(Math.sqrt(Math.max(0, (apparentPower * apparentPower) - (activePower * activePower))) * 10) / 10;
+    // STRICT VALIDATION: Telemetry numbers must be valid numbers within plausible physical limits
+    if (payload.voltage === undefined && payload.current === undefined && payload.activePower === undefined) {
+      return sendResponse(res, 400, {
+        success: false,
+        error: 'Validation failed: Telemetry payload must include at least voltage, current, or activePower readings',
+      });
     }
 
-    const frequency = Number(payload.frequency) || 50.0;
-    let existingMeter = globalMeters.get(meterId);
-    const relayState = payload.relayState || (existingMeter ? existingMeter.relayState : 'ON');
-    const energy = payload.energy !== undefined ? Number(payload.energy) : (existingMeter ? Math.round((existingMeter.totalEnergy + 0.005) * 1000) / 1000 : 12.45);
+    // Voltage validation
+    let voltage = existingMeter.voltage;
+    if (payload.voltage !== undefined) {
+      const parsedV = Number(payload.voltage);
+      if (!Number.isFinite(parsedV) || isNaN(parsedV)) {
+        return sendResponse(res, 400, { success: false, error: `'voltage' must be a valid number, received: ${payload.voltage}` });
+      }
+      if (parsedV < 0 || parsedV > 600) {
+        return sendResponse(res, 400, { success: false, error: `'voltage' (${parsedV}V) is outside plausible range (0V - 600V)` });
+      }
+      voltage = Math.round(parsedV * 10) / 10;
+    }
 
-    const prevSample = existingMeter ? {
+    // Current validation
+    let current = existingMeter.current;
+    if (payload.current !== undefined) {
+      const parsedI = Number(payload.current);
+      if (!Number.isFinite(parsedI) || isNaN(parsedI)) {
+        return sendResponse(res, 400, { success: false, error: `'current' must be a valid number, received: ${payload.current}` });
+      }
+      if (parsedI < 0 || parsedI > 500) {
+        return sendResponse(res, 400, { success: false, error: `'current' (${parsedI}A) is outside plausible range (0A - 500A)` });
+      }
+      current = Math.round(parsedI * 100) / 100;
+    }
+
+    // Power factor validation
+    let powerFactor = existingMeter.powerFactor || 0.96;
+    if (payload.powerFactor !== undefined) {
+      const parsedPF = Number(payload.powerFactor);
+      if (!Number.isFinite(parsedPF) || isNaN(parsedPF)) {
+        return sendResponse(res, 400, { success: false, error: `'powerFactor' must be a valid number, received: ${payload.powerFactor}` });
+      }
+      if (parsedPF < -1.0 || parsedPF > 1.0) {
+        return sendResponse(res, 400, { success: false, error: `'powerFactor' (${parsedPF}) must be between -1.0 and 1.0` });
+      }
+      powerFactor = Math.round(parsedPF * 100) / 100;
+    }
+
+    // Active power validation
+    let activePower: number;
+    if (payload.activePower !== undefined) {
+      const parsedP = Number(payload.activePower);
+      if (!Number.isFinite(parsedP) || isNaN(parsedP)) {
+        return sendResponse(res, 400, { success: false, error: `'activePower' must be a valid number, received: ${payload.activePower}` });
+      }
+      if (parsedP < -50000 || parsedP > 200000) {
+        return sendResponse(res, 400, { success: false, error: `'activePower' (${parsedP}W) is outside physical range` });
+      }
+      activePower = Math.round(parsedP * 10) / 10;
+    } else {
+      activePower = Math.round(voltage * current * powerFactor * 10) / 10;
+    }
+
+    // Apparent & Reactive power
+    const apparentPower = Math.abs(voltage * current);
+    let reactivePower: number;
+    if (payload.reactivePower !== undefined) {
+      const parsedQ = Number(payload.reactivePower);
+      if (!Number.isFinite(parsedQ) || isNaN(parsedQ)) {
+        return sendResponse(res, 400, { success: false, error: `'reactivePower' must be a valid number` });
+      }
+      reactivePower = Math.round(parsedQ * 10) / 10;
+    } else if (apparentPower >= Math.abs(activePower)) {
+      reactivePower = Math.round(Math.sqrt(Math.max(0, apparentPower * apparentPower - activePower * activePower)) * 10) / 10;
+    } else {
+      reactivePower = 0;
+    }
+
+    // Frequency validation
+    let frequency = existingMeter.frequency || 50.0;
+    if (payload.frequency !== undefined) {
+      const parsedF = Number(payload.frequency);
+      if (!Number.isFinite(parsedF) || isNaN(parsedF)) {
+        return sendResponse(res, 400, { success: false, error: `'frequency' must be a valid number` });
+      }
+      if (parsedF < 40.0 || parsedF > 75.0) {
+        return sendResponse(res, 400, { success: false, error: `'frequency' (${parsedF}Hz) must be within 40Hz - 75Hz` });
+      }
+      frequency = Math.round(parsedF * 100) / 100;
+    }
+
+    // Relay state validation
+    let relayState = existingMeter.relayState;
+    if (payload.relayState !== undefined) {
+      if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
+        return sendResponse(res, 400, { success: false, error: `'relayState' must be 'ON' or 'OFF'` });
+      }
+      relayState = payload.relayState;
+    }
+
+    // Energy validation
+    let energy = existingMeter.totalEnergy;
+    if (payload.energy !== undefined) {
+      const parsedE = Number(payload.energy);
+      if (!Number.isFinite(parsedE) || isNaN(parsedE) || parsedE < 0) {
+        return sendResponse(res, 400, { success: false, error: `'energy' must be a positive number` });
+      }
+      energy = Math.round(parsedE * 1000) / 1000;
+    } else {
+      energy = Math.round((existingMeter.totalEnergy + 0.005) * 1000) / 1000;
+    }
+
+    const prevSample = {
       voltage: existingMeter.voltage,
       current: existingMeter.current,
       activePower: existingMeter.activePower,
       energy: existingMeter.totalEnergy,
       timestamp: existingMeter.updatedAt,
-    } : undefined;
+    };
 
     const sample: TelemetrySample = {
       voltage,
@@ -385,52 +552,22 @@ export default async function handler(req: any, res: any) {
 
     const anomalyResult = analyzeTelemetryForAnomalies(sample);
 
-    if (!existingMeter) {
-      existingMeter = {
-        id: meterId,
-        meterId,
-        ownerUid: payload.ownerUid || 'demo_user',
-        name: payload.name || `ESP32 Meter ${meterId}`,
-        relayState,
-        status: 'ONLINE',
-        apiKey: apiKey || `VP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-        lastHeartbeat: now,
-        latitude: payload.latitude !== undefined ? Number(payload.latitude) : 6.5244,
-        longitude: payload.longitude !== undefined ? Number(payload.longitude) : 3.3792,
-        address: payload.address || 'Smart Grid Connection Point',
-        voltage,
-        current,
-        activePower,
-        reactivePower,
-        powerFactor,
-        frequency,
-        totalEnergy: energy,
-        hasAnomaly: anomalyResult.hasAnomaly,
-        anomalyType: anomalyResult.type,
-        anomalySeverity: anomalyResult.severity,
-        anomalyDescription: anomalyResult.hasAnomaly ? anomalyResult.description : 'System normal',
-        createdAt: now,
-        updatedAt: now,
-      };
-    } else {
-      existingMeter.voltage = voltage;
-      existingMeter.current = current;
-      existingMeter.activePower = activePower;
-      existingMeter.reactivePower = reactivePower;
-      existingMeter.powerFactor = powerFactor;
-      existingMeter.frequency = frequency;
-      existingMeter.totalEnergy = energy;
-      existingMeter.relayState = relayState;
-      existingMeter.status = 'ONLINE';
-      existingMeter.lastHeartbeat = now;
-      existingMeter.updatedAt = now;
-      if (apiKey) existingMeter.apiKey = apiKey;
-      if (payload.ownerUid && payload.ownerUid !== 'demo_user') existingMeter.ownerUid = payload.ownerUid;
-      existingMeter.hasAnomaly = anomalyResult.hasAnomaly;
-      existingMeter.anomalyType = anomalyResult.type;
-      existingMeter.anomalySeverity = anomalyResult.severity;
-      existingMeter.anomalyDescription = anomalyResult.hasAnomaly ? anomalyResult.description : 'System normal';
-    }
+    existingMeter.voltage = voltage;
+    existingMeter.current = current;
+    existingMeter.activePower = activePower;
+    existingMeter.reactivePower = reactivePower;
+    existingMeter.powerFactor = powerFactor;
+    existingMeter.frequency = frequency;
+    existingMeter.totalEnergy = energy;
+    existingMeter.relayState = relayState;
+    existingMeter.status = 'ONLINE';
+    existingMeter.lastHeartbeat = now;
+    existingMeter.updatedAt = now;
+
+    existingMeter.hasAnomaly = anomalyResult.hasAnomaly;
+    existingMeter.anomalyType = anomalyResult.type;
+    existingMeter.anomalySeverity = anomalyResult.severity;
+    existingMeter.anomalyDescription = anomalyResult.hasAnomaly ? anomalyResult.description : 'System normal';
 
     globalMeters.set(meterId, existingMeter);
 
@@ -498,6 +635,7 @@ export default async function handler(req: any, res: any) {
   } catch (err: any) {
     console.error('[Telemetry Ingest Error]', err);
     return sendResponse(res, 500, {
+      success: false,
       error: err?.message || 'Internal telemetry processing error',
     });
   }
