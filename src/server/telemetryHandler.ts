@@ -17,17 +17,25 @@ export class IngestionError extends Error {
   }
 }
 
-// Generate secure API key in format VP-XXXX-XXXX-XXXX
+// Fixed-length 16-character secure API key generator: 'VP-' (3 chars) + 13 alphanumeric chars = 16 characters
+export const FIXED_API_KEY_LENGTH = 16;
 export function generateApiKey(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const segment = (len: number) => {
-    let res = '';
-    for (let i = 0; i < len; i++) {
-      res += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return res;
-  };
-  return `VP-${segment(4)}-${segment(4)}-${segment(4)}`;
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let res = 'VP-';
+  for (let i = 0; i < 13; i++) {
+    res += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return res;
+}
+
+// 30-minute window in ms for Online / Offline evaluation
+export const ONLINE_WINDOW_MS = 30 * 60 * 1000;
+
+export function evaluateOnlineStatus(lastHeartbeat?: string | null): 'ONLINE' | 'OFFLINE' {
+  if (!lastHeartbeat) return 'OFFLINE';
+  const time = new Date(lastHeartbeat).getTime();
+  if (isNaN(time) || time <= 0) return 'OFFLINE';
+  return (Date.now() - time) <= ONLINE_WINDOW_MS ? 'ONLINE' : 'OFFLINE';
 }
 
 // Default fallback preferences for demo / initial user
@@ -75,15 +83,16 @@ export function deleteMeter(meterId: string): boolean {
 }
 
 /**
- * Rotate or set an API key for a meter
+ * Rotate API key for a meter - strictly auto-generated with fixed length (16 chars)
  */
-export function rotateMeterApiKey(meterId: string, customKey?: string): string {
+export function rotateMeterApiKey(meterId: string): string {
   const meter = activeMeters.get(meterId);
   if (!meter) {
     throw new IngestionError(404, `Meter '${meterId}' not found`);
   }
 
-  const newKey = customKey?.trim() ? customKey.trim().toUpperCase() : generateApiKey();
+  // Always automatically generate a fixed-length (16-char) secure key
+  const newKey = generateApiKey();
   meter.apiKey = newKey;
   meter.updatedAt = new Date().toISOString();
   activeMeters.set(meterId, meter);

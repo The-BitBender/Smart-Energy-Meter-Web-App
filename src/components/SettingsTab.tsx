@@ -29,6 +29,7 @@ import {
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Meter, NotificationPreferences, AnomalySeverity } from '../types/energy';
+import { formatLastSeen } from '../utils/statusHelper';
 
 interface SettingsTabProps {
   user: any;
@@ -36,7 +37,7 @@ interface SettingsTabProps {
   activeMeter: Meter | null;
   onSelectMeter: (meter: Meter) => void;
   onUpdateMeter: (meterId: string, updates: Partial<Meter>) => Promise<void>;
-  onRotateApiKey: (meterId: string, customKey?: string) => Promise<string>;
+  onRotateApiKey: (meterId: string) => Promise<string>;
   onDeleteMeter: (meterId: string) => Promise<void>;
 }
 
@@ -51,17 +52,23 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 }) => {
   const currentMeter = activeMeter || (meters.length > 0 ? meters[0] : null);
 
+  // Live timer for relative last seen updates
+  const [nowTime, setNowTime] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowTime(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Meter details editing state
   const [meterName, setMeterName] = useState(currentMeter?.name || '');
   const [meterAddress, setMeterAddress] = useState(currentMeter?.address || '');
   const [isUpdatingDetails, setIsUpdatingDetails] = useState(false);
   const [detailsSaved, setDetailsSaved] = useState(false);
 
-  // API Key management state
+  // API Key management state (Auto-generated 16-character key)
   const [showKey, setShowKey] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [isRotateModalOpen, setIsRotateModalOpen] = useState(false);
-  const [customKeyInput, setCustomKeyInput] = useState('');
   const [isRotating, setIsRotating] = useState(false);
   const [rotateSuccess, setRotateSuccess] = useState(false);
 
@@ -151,17 +158,16 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     setTimeout(() => setCopiedKey(false), 2000);
   };
 
-  // Handle Rotate API Key
+  // Handle Rotate API Key (Strictly auto-generated 16-character key)
   const handleConfirmRotateKey = async () => {
     if (!currentMeter) return;
     setIsRotating(true);
     try {
-      await onRotateApiKey(currentMeter.meterId, customKeyInput.trim() || undefined);
+      await onRotateApiKey(currentMeter.meterId);
       setRotateSuccess(true);
       setTimeout(() => {
         setRotateSuccess(false);
         setIsRotateModalOpen(false);
-        setCustomKeyInput('');
       }, 1500);
     } catch (err) {
       console.error('Rotate key error:', err);
@@ -379,14 +385,14 @@ res.close()`;
                 </div>
               </div>
               <span className="text-[10px] uppercase font-mono font-black px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-300 border border-emerald-500/30">
-                Active &amp; Guarded
+                Fixed Length: 16 Chars
               </span>
             </div>
 
             <div className="p-3.5 rounded-xl bg-[#002824] border border-white/10 space-y-2">
               <div className="flex items-center justify-between text-xs text-teal-200">
                 <span className="font-semibold">Current API Key:</span>
-                <span className="text-[10px] text-teal-300/80 font-mono">X-API-Key Header</span>
+                <span className="text-[10px] text-teal-300/80 font-mono">16-char token</span>
               </div>
               <div className="flex items-center space-x-2">
                 <div className="flex-1 bg-[#001d1a] border border-white/15 px-3 py-2 rounded-lg font-mono text-sm tracking-wider text-white font-bold select-all overflow-x-auto">
@@ -428,7 +434,7 @@ res.close()`;
               className="w-full py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold text-xs flex items-center justify-center space-x-2 transition-all active:scale-98"
             >
               <RefreshCw className="w-4 h-4 text-teal-300" />
-              <span>Rotate / Change API Key</span>
+              <span>Rotate / Generate New API Key</span>
             </button>
           </div>
         </div>
@@ -446,10 +452,19 @@ res.close()`;
               </div>
             </div>
 
-            <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-[#002622] border border-white/15 text-xs font-mono font-bold">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span className="text-white">{currentMeter.status}</span>
-            </div>
+            {(() => {
+              const statusInfo = formatLastSeen(currentMeter.lastHeartbeat, nowTime);
+              return (
+                <div className={`flex items-center space-x-1.5 px-3 py-1 rounded-full border text-xs font-mono font-bold transition-colors ${
+                  statusInfo.isOnline
+                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40 shadow-xs'
+                    : 'bg-rose-950/80 text-rose-300 border-rose-500/40 shadow-xs'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${statusInfo.isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`}></span>
+                  <span>{statusInfo.isOnline ? 'ONLINE' : 'OFFLINE'} • {statusInfo.relativeTime}</span>
+                </div>
+              );
+            })()}
           </div>
 
           <form onSubmit={handleSaveDetails} className="space-y-4">
@@ -754,17 +769,30 @@ res.close()`;
               </p>
             </div>
 
-            <div className="space-y-2">
-              <label className="block text-xs font-semibold text-teal-200">
-                Custom API Key (Optional — Leave blank to auto-generate secure key)
-              </label>
-              <input
-                type="text"
-                value={customKeyInput}
-                onChange={(e) => setCustomKeyInput(e.target.value.toUpperCase())}
-                placeholder="e.g. VP-9921-XRTB-4412"
-                className="w-full bg-[#002420] text-white font-mono text-xs px-3.5 py-2.5 rounded-lg border border-white/20 focus:outline-hidden focus:ring-2 focus:ring-white uppercase"
-              />
+            <div className="p-4 rounded-xl bg-[#002420] border border-teal-500/30 text-xs space-y-2.5">
+              <div className="flex items-center justify-between text-teal-200">
+                <span className="font-semibold">Key Specification:</span>
+                <span className="px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 font-mono font-bold text-[10px]">
+                  Fixed Length: 16 Chars
+                </span>
+              </div>
+              <div className="space-y-1 text-teal-100 font-mono text-[11px] bg-black/20 p-2.5 rounded-lg border border-teal-500/20">
+                <div className="flex justify-between">
+                  <span className="text-teal-300/70">Format:</span>
+                  <span className="text-white font-bold">VP-&lt;13 ALPHANUMERIC&gt;</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-teal-300/70">Generation:</span>
+                  <span className="text-emerald-300 font-bold">Cryptographic Random (Auto)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-teal-300/70">Target Meter:</span>
+                  <span className="text-white font-bold">{currentMeter.meterId}</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-teal-300/80 leading-normal">
+                Clicking confirm will generate and securely assign a new 16-character authentication key. No manual input required.
+              </p>
             </div>
 
             <div className="flex items-center justify-end space-x-3 pt-2">
@@ -790,7 +818,7 @@ res.close()`;
                 ) : (
                   <>
                     <RefreshCw className={`w-4 h-4 ${isRotating ? 'animate-spin' : ''}`} />
-                    <span>{isRotating ? 'Rotating...' : 'Confirm & Rotate Key'}</span>
+                    <span>{isRotating ? 'Generating Key...' : 'Generate & Rotate Key'}</span>
                   </>
                 )}
               </button>

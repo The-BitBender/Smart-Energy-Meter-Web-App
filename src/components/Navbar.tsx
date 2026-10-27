@@ -16,6 +16,7 @@ import {
   Bell
 } from 'lucide-react';
 import { Meter } from '../types/energy';
+import { formatLastSeen } from '../utils/statusHelper';
 
 interface NavbarProps {
   user: any;
@@ -30,6 +31,7 @@ interface NavbarProps {
   setActiveTab: (tab: 'dashboard' | 'analytics' | 'map' | 'anomalies' | 'workbench' | 'settings') => void;
   isOnline: boolean;
   heartbeatAgeSec: number;
+  nowTime?: number;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -43,9 +45,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSettings,
   activeTab,
   setActiveTab,
-  isOnline,
-  heartbeatAgeSec,
+  isOnline: _isOnlineProp,
+  heartbeatAgeSec: _heartbeatAgeSecProp,
+  nowTime = Date.now(),
 }) => {
+  const lastSeen = formatLastSeen(activeMeter?.lastHeartbeat, nowTime);
+  const isOnline = lastSeen.isOnline;
   const [meterDropdownOpen, setMeterDropdownOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
@@ -121,13 +126,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                             {meter.name}
                           </div>
                         </div>
-                        <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold ${
-                          activeMeter?.meterId === meter.meterId
-                            ? 'bg-[#005149] text-white'
-                            : meter.status === 'ONLINE' ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30' : 'bg-black/20 text-teal-300'
-                        }`}>
-                          {meter.status}
-                        </span>
+                        {(() => {
+                          const mStatus = formatLastSeen(meter.lastHeartbeat, nowTime);
+                          return (
+                            <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold ${
+                              activeMeter?.meterId === meter.meterId
+                                ? 'bg-[#005149] text-white'
+                                : mStatus.isOnline
+                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30'
+                                  : 'bg-rose-950 text-rose-300 border border-rose-500/30'
+                            }`}>
+                              {mStatus.isOnline ? 'ONLINE' : 'OFFLINE'} • {mStatus.relativeTime}
+                            </span>
+                          );
+                        })()}
                       </button>
                     ))}
                   </div>
@@ -147,8 +159,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </div>
 
-            {/* Clear Online / Offline Indicator Badge */}
-            <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-mono font-bold border ${
+            {/* Clear Online / Offline Indicator Badge with 30-Minute Window & Relative Last Seen Counter */}
+            <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-mono font-bold border transition-colors ${
               isOnline 
                 ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40 shadow-xs' 
                 : 'bg-rose-950/80 text-rose-300 border-rose-500/40 shadow-xs'
@@ -160,12 +172,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
                   </span>
                   <Wifi className="w-3.5 h-3.5 text-emerald-300" />
-                  <span>ONLINE • {heartbeatAgeSec}s ago</span>
+                  <span>ONLINE • {lastSeen.relativeTime}</span>
                 </>
               ) : (
                 <>
                   <WifiOff className="w-3.5 h-3.5 text-rose-400" />
-                  <span>OFFLINE • {heartbeatAgeSec}s ago</span>
+                  <span>OFFLINE • {lastSeen.relativeTime}</span>
                 </>
               )}
             </div>

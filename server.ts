@@ -11,7 +11,8 @@ import {
   rotateMeterApiKey,
   updateMeter,
   IngestionError,
-  generateApiKey
+  generateApiKey,
+  evaluateOnlineStatus
 } from './src/server/telemetryHandler';
 import type { NotificationPreferences, Meter } from './src/types/energy';
 
@@ -144,9 +145,16 @@ app.get('/api/telemetry/latest', (req, res) => {
   ensureDemoMeters();
   const meterId = (req.query.meterId as string)?.trim();
   if (!meterId) {
-    return res.json({ success: true, meters: Array.from(activeMeters.values()) });
+    const all = Array.from(activeMeters.values()).map(m => {
+      m.status = evaluateOnlineStatus(m.lastHeartbeat);
+      return m;
+    });
+    return res.json({ success: true, meters: all });
   }
   const meter = activeMeters.get(meterId) || null;
+  if (meter) {
+    meter.status = evaluateOnlineStatus(meter.lastHeartbeat);
+  }
   const logs = telemetryStore.get(meterId) || [];
   const latestLog = logs.length > 0 ? logs[logs.length - 1] : null;
   res.json({
@@ -162,10 +170,14 @@ app.get('/api/telemetry/latest', (req, res) => {
 
 app.get('/api/telemetry/meters', (req, res) => {
   ensureDemoMeters();
+  const all = Array.from(activeMeters.values()).map(m => {
+    m.status = evaluateOnlineStatus(m.lastHeartbeat);
+    return m;
+  });
   res.json({
     success: true,
-    meters: Array.from(activeMeters.values()),
-    count: activeMeters.size,
+    meters: all,
+    count: all.length,
     timestamp: new Date().toISOString(),
   });
 });
@@ -173,10 +185,11 @@ app.get('/api/telemetry/meters', (req, res) => {
 // Fast relay poll
 app.get('/api/meters/:meterId/relay-status', (req, res) => {
   const meter = activeMeters.get(req.params.meterId);
+  const status = meter ? evaluateOnlineStatus(meter.lastHeartbeat) : 'UNKNOWN';
   res.json({
     meterId: req.params.meterId,
     relayState: meter ? meter.relayState : 'ON',
-    status: meter ? meter.status : 'UNKNOWN',
+    status,
   });
 });
 
@@ -193,10 +206,10 @@ app.post('/api/meters/:meterId/relay', (req, res) => {
   res.json({ success: true, meterId: meter.meterId, relayState: meter.relayState });
 });
 
-// Rotate or set API key for a meter
+// Rotate or set API key for a meter - strictly auto-generated with fixed length (16 chars)
 app.post('/api/meters/:meterId/rotate-key', (req, res) => {
   try {
-    const newKey = rotateMeterApiKey(req.params.meterId, req.body?.apiKey);
+    const newKey = rotateMeterApiKey(req.params.meterId);
     const meter = activeMeters.get(req.params.meterId);
     res.json({ success: true, meterId: req.params.meterId, apiKey: newKey, meter });
   } catch (err: any) {

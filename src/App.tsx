@@ -37,6 +37,7 @@ import { SettingsTab } from './components/SettingsTab';
 import { AuthPage } from './components/AuthPage';
 import { MeterOnboardingModal } from './components/MeterOnboardingModal';
 import { Activity, ShieldCheck, Zap, Radio, AlertCircle, Plus, Cpu } from 'lucide-react';
+import { reconcileMeter, formatLastSeen } from './utils/statusHelper';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -136,7 +137,7 @@ export default function App() {
           prevList.forEach((m) => map.set(m.meterId, m));
           discoveredMeters.forEach((m) => {
             const existing = map.get(m.meterId);
-            map.set(m.meterId, existing ? { ...existing, ...m } : m);
+            map.set(m.meterId, reconcileMeter(existing, m));
           });
           return Array.from(map.values());
         });
@@ -152,12 +153,12 @@ export default function App() {
             (Date.now() - new Date(m.lastHeartbeat).getTime()) < 120000
           );
           if (prev.meterId === 'ESP32-MTR-8842' && liveHardware) {
-            return liveHardware;
+            return reconcileMeter(prev, liveHardware);
           }
 
-          // Otherwise keep current meter updated with latest metrics
+          // Otherwise keep current meter updated with latest metrics without reverting newer readings
           const currentUpdated = discoveredMeters.find(m => m.meterId === prev.meterId);
-          return currentUpdated ? { ...prev, ...currentUpdated } : prev;
+          return currentUpdated ? reconcileMeter(prev, currentUpdated) : prev;
         });
       }
     } catch (e) {
@@ -198,14 +199,14 @@ export default function App() {
             prevMeters.forEach(m => map.set(m.meterId, m));
             loadedMeters.forEach(m => {
               const existing = map.get(m.meterId);
-              map.set(m.meterId, existing ? { ...existing, ...m } : m);
+              map.set(m.meterId, reconcileMeter(existing, m));
             });
             return Array.from(map.values());
           });
           setActiveMeter((prev) => {
             if (!prev) return loadedMeters[0];
             const found = loadedMeters.find((m) => m.meterId === prev.meterId);
-            return found || loadedMeters[0];
+            return found ? reconcileMeter(prev, found) : prev;
           });
         }
       },
@@ -270,28 +271,11 @@ export default function App() {
         if (latestMeterData) {
           setActiveMeter((prev) => {
             if (!prev || prev.meterId !== meterId) return prev;
-            return {
-              ...prev,
-              voltage: latestMeterData.voltage,
-              current: latestMeterData.current,
-              activePower: latestMeterData.activePower,
-              reactivePower: latestMeterData.reactivePower,
-              powerFactor: latestMeterData.powerFactor,
-              frequency: latestMeterData.frequency,
-              totalEnergy: latestMeterData.totalEnergy,
-              relayState: latestMeterData.relayState,
-              status: latestMeterData.status,
-              lastHeartbeat: latestMeterData.lastHeartbeat,
-              hasAnomaly: latestMeterData.hasAnomaly,
-              anomalyType: latestMeterData.anomalyType,
-              anomalySeverity: latestMeterData.anomalySeverity,
-              anomalyDescription: latestMeterData.anomalyDescription,
-              updatedAt: latestMeterData.updatedAt,
-            };
+            return reconcileMeter(prev, latestMeterData);
           });
 
           setMeters((prevList) =>
-            prevList.map((item) => (item.meterId === meterId ? { ...item, ...latestMeterData } : item))
+            prevList.map((item) => (item.meterId === meterId ? reconcileMeter(item, latestMeterData) : item))
           );
 
           // Authenticated Firestore real-time sync
@@ -372,11 +356,10 @@ export default function App() {
     };
   }, [activeMeter?.meterId, user]);
 
-  // Heartbeat calculation
-  const heartbeatAgeSec = activeMeter?.lastHeartbeat
-    ? Math.max(0, Math.floor((nowTime - new Date(activeMeter.lastHeartbeat).getTime()) / 1000))
-    : 999;
-  const isOnline = activeMeter ? activeMeter.status === 'ONLINE' && heartbeatAgeSec < 35 : false;
+  // Heartbeat calculation and 30-minute online status window
+  const lastSeenInfo = formatLastSeen(activeMeter?.lastHeartbeat, nowTime);
+  const heartbeatAgeSec = lastSeenInfo.ageSec;
+  const isOnline = lastSeenInfo.isOnline;
 
   // Toggle Relay Output (ON / OFF)
   const handleToggleRelay = async (newState: 'ON' | 'OFF') => {
@@ -629,13 +612,13 @@ export default function App() {
   };
 
   // Rotate / Change API Key Handler
-  const handleRotateApiKey = async (meterId: string, customKey?: string): Promise<string> => {
+  // Rotate / Change API Key Handler (Strictly auto-generates fixed 16-character key: VP- + 13 chars)
+  const handleRotateApiKey = async (meterId: string): Promise<string> => {
     try {
       let newKey = '';
       const res = await fetch(`/api/meters/${encodeURIComponent(meterId)}/rotate-key`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: customKey }),
       });
 
       if (res.ok) {
@@ -646,7 +629,7 @@ export default function App() {
         const fbRes = await fetch('/api/telemetry/ingest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'rotate_key', meterId, apiKey: customKey }),
+          body: JSON.stringify({ action: 'rotate_key', meterId }),
         });
         if (fbRes.ok) {
           const fbData = await fbRes.json();
@@ -654,14 +637,14 @@ export default function App() {
         }
       }
 
-      if (!newKey) {
-        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-        const seg = (n: number) => {
-          let s = '';
-          for (let i = 0; i < n; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
-          return s;
-        };
-        newKey = customKey || `VP-${seg(4)}-${seg(4)}-${seg(4)}`;
+      // Ensure strict fixed length of 16 chars: "VP-" + 13 alphanumeric chars = 16 chars
+      if (!newKey || newKey.length !== 16) {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let randomSuffix = '';
+        for (let i = 0; i < 13; i++) {
+          randomSuffix += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        newKey = `VP-${randomSuffix}`;
       }
 
       // Update in local state
@@ -854,6 +837,7 @@ export default function App() {
         setActiveTab={setActiveTab}
         isOnline={isOnline}
         heartbeatAgeSec={heartbeatAgeSec}
+        nowTime={nowTime}
       />
 
       {/* Main Content Area */}

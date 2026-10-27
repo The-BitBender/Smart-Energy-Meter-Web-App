@@ -56,6 +56,14 @@ const telemetryStore = new Map<string, any[]>();
 const anomalyStore = new Map<string, any[]>();
 const userPreferencesStore = new Map<string, any>();
 
+export const ONLINE_WINDOW_MS = 30 * 60 * 1000; // 30-minute window
+export function evaluateOnline(lastHeartbeat?: string | null): 'ONLINE' | 'OFFLINE' {
+  if (!lastHeartbeat) return 'OFFLINE';
+  const t = new Date(lastHeartbeat).getTime();
+  if (isNaN(t) || t <= 0) return 'OFFLINE';
+  return (Date.now() - t) <= ONLINE_WINDOW_MS ? 'ONLINE' : 'OFFLINE';
+}
+
 function seedDemoData() {
   if (activeMeters.size > 0) return;
   const now = Date.now();
@@ -345,9 +353,13 @@ app.get(['/api/telemetry/latest', '/telemetry/latest'], (req, res) => {
   seedDemoData();
   const meterId = (req.query.meterId as string)?.trim();
   if (!meterId) {
-    return res.json({ success: true, meters: Array.from(activeMeters.values()) });
+    const list = Array.from(activeMeters.values()).map(m => ({ ...m, status: evaluateOnline(m.lastHeartbeat) }));
+    return res.json({ success: true, meters: list });
   }
   const meter = activeMeters.get(meterId) || null;
+  if (meter) {
+    meter.status = evaluateOnline(meter.lastHeartbeat);
+  }
   const logs = telemetryStore.get(meterId) || [];
   const latestLog = logs.length > 0 ? logs[logs.length - 1] : null;
   res.json({
@@ -363,10 +375,11 @@ app.get(['/api/telemetry/latest', '/telemetry/latest'], (req, res) => {
 
 app.get(['/api/telemetry/meters', '/telemetry/meters'], (req, res) => {
   seedDemoData();
+  const list = Array.from(activeMeters.values()).map(m => ({ ...m, status: evaluateOnline(m.lastHeartbeat) }));
   res.json({
     success: true,
-    meters: Array.from(activeMeters.values()),
-    count: activeMeters.size,
+    meters: list,
+    count: list.length,
     timestamp: new Date().toISOString(),
   });
 });
@@ -375,10 +388,11 @@ app.get(['/api/telemetry/meters', '/telemetry/meters'], (req, res) => {
 app.get(['/api/meters/:meterId/relay-status', '/meters/:meterId/relay-status'], (req, res) => {
   seedDemoData();
   const meter = activeMeters.get(req.params.meterId);
+  const status = meter ? evaluateOnline(meter.lastHeartbeat) : 'UNKNOWN';
   res.json({
     meterId: req.params.meterId,
     relayState: meter ? meter.relayState : 'ON',
-    status: meter ? meter.status : 'UNKNOWN',
+    status,
   });
 });
 
@@ -453,18 +467,16 @@ app.get(['/api/meters/:meterId', '/meters/:meterId'], (req, res) => {
   res.json({ meter });
 });
 
-// Rotate API key
+// Rotate API key - strictly auto-generated with fixed length of 16 characters
 app.post(['/api/meters/:meterId/rotate-key', '/meters/:meterId/rotate-key'], (req, res) => {
   seedDemoData();
   const meter = activeMeters.get(req.params.meterId);
   if (!meter) return res.status(404).json({ success: false, error: 'Meter not found' });
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const seg = (n: number) => {
-    let s = '';
-    for (let i = 0; i < n; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
-    return s;
-  };
-  const newKey = req.body?.apiKey?.trim() || `VP-${seg(4)}-${seg(4)}-${seg(4)}`;
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let newKey = 'VP-';
+  for (let i = 0; i < 13; i++) {
+    newKey += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
   meter.apiKey = newKey;
   meter.updatedAt = new Date().toISOString();
   activeMeters.set(req.params.meterId, meter);

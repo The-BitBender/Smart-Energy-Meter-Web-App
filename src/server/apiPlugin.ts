@@ -10,7 +10,8 @@ import {
   rotateMeterApiKey,
   updateMeter,
   IngestionError,
-  generateApiKey
+  generateApiKey,
+  evaluateOnlineStatus
 } from './telemetryHandler';
 import { Meter, NotificationPreferences } from '../types/energy';
 
@@ -185,9 +186,16 @@ export function apiMiddlewarePlugin(): Plugin {
             const parsedUrl = new URL(rawUrl, `http://${host}`);
             const meterId = parsedUrl.searchParams.get('meterId')?.trim();
             if (!meterId) {
-              return sendJson(res, 200, { success: true, meters: Array.from(activeMeters.values()) });
+              const all = Array.from(activeMeters.values()).map(m => {
+                m.status = evaluateOnlineStatus(m.lastHeartbeat);
+                return m;
+              });
+              return sendJson(res, 200, { success: true, meters: all });
             }
             const meter = activeMeters.get(meterId) || null;
+            if (meter) {
+              meter.status = evaluateOnlineStatus(meter.lastHeartbeat);
+            }
             const logs = telemetryStore.get(meterId) || [];
             const latestLog = logs.length > 0 ? logs[logs.length - 1] : null;
             return sendJson(res, 200, {
@@ -203,10 +211,14 @@ export function apiMiddlewarePlugin(): Plugin {
 
           if (cleanPath === '/api/telemetry/meters' && req.method === 'GET') {
             ensureDemoMeters();
+            const all = Array.from(activeMeters.values()).map(m => {
+              m.status = evaluateOnlineStatus(m.lastHeartbeat);
+              return m;
+            });
             return sendJson(res, 200, {
               success: true,
-              meters: Array.from(activeMeters.values()),
-              count: activeMeters.size,
+              meters: all,
+              count: all.length,
               timestamp: new Date().toISOString(),
             });
           }
@@ -216,10 +228,11 @@ export function apiMiddlewarePlugin(): Plugin {
           if (relayStatusMatch && req.method === 'GET') {
             const meterId = decodeURIComponent(relayStatusMatch[1]);
             const meter = activeMeters.get(meterId);
+            const status = meter ? evaluateOnlineStatus(meter.lastHeartbeat) : 'UNKNOWN';
             return sendJson(res, 200, {
               meterId,
               relayState: meter ? meter.relayState : 'ON',
-              status: meter ? meter.status : 'UNKNOWN',
+              status,
             });
           }
 
@@ -245,9 +258,9 @@ export function apiMiddlewarePlugin(): Plugin {
           const rotateKeyMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)\/rotate-key$/);
           if (rotateKeyMatch && req.method === 'POST') {
             const meterId = decodeURIComponent(rotateKeyMatch[1]);
-            const body = await readJsonBody(req);
             try {
-              const newKey = rotateMeterApiKey(meterId, body?.apiKey);
+              // Always auto-generate fixed-length key
+              const newKey = rotateMeterApiKey(meterId);
               const meter = activeMeters.get(meterId);
               return sendJson(res, 200, { 
                 success: true, 

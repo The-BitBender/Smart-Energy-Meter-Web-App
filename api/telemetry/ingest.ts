@@ -154,14 +154,21 @@ const globalMeters = new Map<string, any>();
 const globalLogs = new Map<string, any[]>();
 const globalAnomalies = new Map<string, any[]>();
 
+export const FIXED_API_KEY_LENGTH = 16;
+export const ONLINE_WINDOW_MS = 30 * 60 * 1000; // 30-minute window
+
 export function generateKey(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const seg = (n: number) => {
-    let s = '';
-    for (let i = 0; i < n; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
-    return s;
-  };
-  return `VP-${seg(4)}-${seg(4)}-${seg(4)}`;
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = 'VP-';
+  for (let i = 0; i < 13; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
+  return s; // Exactly 16 chars
+}
+
+export function getOnlineStatus(lastHeartbeat?: string | null): 'ONLINE' | 'OFFLINE' {
+  if (!lastHeartbeat) return 'OFFLINE';
+  const t = new Date(lastHeartbeat).getTime();
+  if (isNaN(t) || t <= 0) return 'OFFLINE';
+  return (Date.now() - t) <= ONLINE_WINDOW_MS ? 'ONLINE' : 'OFFLINE';
 }
 
 // Resilient body parser that supports pre-parsed JSON, raw strings, and streams
@@ -284,13 +291,16 @@ export default async function handler(req: any, res: any) {
         return sendResponse(res, 200, {
           meterId: queryMeterId,
           relayState: meter ? meter.relayState : 'ON',
-          status: meter ? meter.status : 'ONLINE',
+          status: meter ? getOnlineStatus(meter.lastHeartbeat) : 'OFFLINE',
         });
       }
 
       // Query single meter live state and recent logs
       if (queryMeterId && !isAll) {
         const meter = globalMeters.get(queryMeterId);
+        if (meter) {
+          meter.status = getOnlineStatus(meter.lastHeartbeat);
+        }
         const logs = globalLogs.get(queryMeterId) || [];
         const alerts = globalAnomalies.get(queryMeterId) || [];
         const latestLog = logs.length > 0 ? logs[logs.length - 1] : null;
@@ -306,8 +316,11 @@ export default async function handler(req: any, res: any) {
         });
       }
 
-      // Query all reporting meters
-      const allMeters = Array.from(globalMeters.values());
+      // Query all reporting meters with 30-minute status check
+      const allMeters = Array.from(globalMeters.values()).map(m => {
+        m.status = getOnlineStatus(m.lastHeartbeat);
+        return m;
+      });
       return sendResponse(res, 200, {
         success: true,
         meters: allMeters,
@@ -364,13 +377,13 @@ export default async function handler(req: any, res: any) {
       return sendResponse(res, 201, { success: true, meter: newMeter });
     }
 
-    // Check if this is an API key rotation request
+    // Check if this is an API key rotation request (strictly auto-generate 16-character key)
     if (payload.action === 'rotate_key') {
       const meter = globalMeters.get(meterId);
       if (!meter) {
         return sendResponse(res, 404, { success: false, error: `Meter '${meterId}' not found` });
       }
-      const newKey = payload.apiKey?.trim() || generateKey();
+      const newKey = generateKey();
       meter.apiKey = newKey;
       meter.updatedAt = now;
       globalMeters.set(meterId, meter);
