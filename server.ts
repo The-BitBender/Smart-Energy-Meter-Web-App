@@ -14,7 +14,10 @@ import {
   generateApiKey,
   evaluateOnlineStatus,
   getNextMeterId,
-  incrementMetersCreated
+  incrementMetersCreated,
+  saveMetersToDisk,
+  loadMetersFromDisk,
+  syncMeters
 } from './src/server/telemetryHandler';
 import type { NotificationPreferences, Meter } from './src/types/energy';
 
@@ -265,6 +268,10 @@ app.post('/api/meters', (req, res) => {
     const meterId = (body.meterId?.trim()) || getNextMeterId();
     incrementMetersCreated();
 
+    const assignedApiKey = (body.apiKey && typeof body.apiKey === 'string' && body.apiKey.trim())
+      ? body.apiKey.trim()
+      : generateApiKey();
+
     const now = new Date().toISOString();
     // All dashboard metrics initialize strictly to 0.0, status to OFFLINE, lastHeartbeat to null
     const newMeter = {
@@ -274,8 +281,7 @@ app.post('/api/meters', (req, res) => {
       name: body.name?.trim() || `Smart Meter ${meterId}`,
       relayState: 'ON' as const,
       status: 'OFFLINE' as const,
-      // Always auto-generate 16-character secure API key
-      apiKey: generateApiKey(),
+      apiKey: assignedApiKey,
       lastHeartbeat: null as any,
       latitude: Number(body.latitude) || 6.5244,
       longitude: Number(body.longitude) || 3.3792,
@@ -296,9 +302,22 @@ app.post('/api/meters', (req, res) => {
     };
 
     activeMeters.set(meterId, newMeter);
+    saveMetersToDisk();
     res.status(201).json({ success: true, meter: newMeter });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to register meter' });
+  }
+});
+
+// Bulk sync meters from Firestore / UI
+app.post('/api/meters/sync', (req, res) => {
+  try {
+    const body = req.body || {};
+    const metersToSync = Array.isArray(body.meters) ? body.meters : (body.meter ? [body.meter] : []);
+    syncMeters(metersToSync);
+    res.json({ success: true, count: activeMeters.size, meters: Array.from(activeMeters.values()) });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

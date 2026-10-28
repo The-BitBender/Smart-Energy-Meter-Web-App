@@ -194,6 +194,18 @@ export default function App() {
         });
 
         if (loadedMeters.length > 0) {
+          // Immediately sync all user meters to backend in-memory and disk registries
+          fetch('/api/meters/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ meters: loadedMeters }),
+          }).catch(() => {});
+          fetch('/api/telemetry/ingest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'sync_meters', meters: loadedMeters }),
+          }).catch(() => {});
+
           setMeters((prevMeters) => {
             const map = new Map<string, Meter>();
             prevMeters.forEach(m => map.set(m.meterId, m));
@@ -485,6 +497,26 @@ export default function App() {
         }
       } catch (apiErr) {
         console.warn('Backend API meter sync skipped/offline:', apiErr);
+      }
+
+      // Also register directly with /api/telemetry/ingest for Vercel lambdas
+      try {
+        await fetch('/api/telemetry/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'register_meter',
+            meterId: assignedMeterId,
+            apiKey: assignedApiKey,
+            name: newMeter.name,
+            latitude: newMeter.latitude,
+            longitude: newMeter.longitude,
+            address: newMeter.address,
+            ownerUid,
+          }),
+        });
+      } catch (ingestRegErr) {
+        console.warn('Ingest registration notice:', ingestRegErr);
       }
 
       // 2. Save in Firestore if authenticated

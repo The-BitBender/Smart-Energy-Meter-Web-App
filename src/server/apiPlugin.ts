@@ -13,7 +13,9 @@ import {
   generateApiKey,
   evaluateOnlineStatus,
   getNextMeterId,
-  incrementMetersCreated
+  incrementMetersCreated,
+  saveMetersToDisk,
+  syncMeters
 } from './telemetryHandler';
 import { Meter, NotificationPreferences } from '../types/energy';
 
@@ -320,6 +322,18 @@ export function apiMiddlewarePlugin(): Plugin {
             });
           }
 
+          // 8c. Sync meters from Firestore / client (POST /api/meters/sync)
+          if (cleanPath === '/api/meters/sync' && req.method === 'POST') {
+            const body = await readJsonBody(req);
+            const metersToSync = Array.isArray(body.meters) ? body.meters : (body.meter ? [body.meter] : []);
+            syncMeters(metersToSync);
+            return sendJson(res, 200, {
+              success: true,
+              count: activeMeters.size,
+              meters: Array.from(activeMeters.values()),
+            });
+          }
+
           // 9. Register or Link New Meter (POST /api/meters)
           if (cleanPath === '/api/meters' && req.method === 'POST') {
             const body = await readJsonBody(req);
@@ -327,6 +341,10 @@ export function apiMiddlewarePlugin(): Plugin {
             const meterId = (body.meterId?.trim()) || getNextMeterId();
             const now = new Date().toISOString();
             incrementMetersCreated();
+
+            const assignedApiKey = (body.apiKey && typeof body.apiKey === 'string' && body.apiKey.trim())
+              ? body.apiKey.trim()
+              : generateApiKey();
 
             // All metrics MUST initialize to 0.0, status to OFFLINE, and lastHeartbeat to null
             const newMeter: Meter = {
@@ -336,8 +354,7 @@ export function apiMiddlewarePlugin(): Plugin {
               name: body.name?.trim() || `Smart Meter ${meterId}`,
               relayState: 'ON',
               status: 'OFFLINE',
-              // Always auto-generate 16-character secure API key (rotation format)
-              apiKey: generateApiKey(),
+              apiKey: assignedApiKey,
               lastHeartbeat: null as any,
               latitude: Number(body.latitude) || 6.5244,
               longitude: Number(body.longitude) || 3.3792,
@@ -357,6 +374,7 @@ export function apiMiddlewarePlugin(): Plugin {
               updatedAt: now,
             };
             activeMeters.set(meterId, newMeter);
+            saveMetersToDisk();
             return sendJson(res, 201, { success: true, meter: newMeter });
           }
 

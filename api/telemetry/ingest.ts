@@ -1,5 +1,7 @@
 // Standalone, zero-dependency Vercel Serverless Function for ESP32 Telemetry Ingestion
 // Handles POST, GET, DELETE /api/telemetry/ingest
+import fs from 'fs';
+import path from 'path';
 
 export interface TelemetrySample {
   voltage: number;
@@ -187,6 +189,33 @@ const globalMeters = new Map<string, any>();
 const globalLogs = new Map<string, any[]>();
 const globalAnomalies = new Map<string, any[]>();
 
+const CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_meters.json');
+
+function saveMetersToDisk() {
+  try {
+    const list = Array.from(globalMeters.values());
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch {}
+}
+
+function loadMetersFromDisk() {
+  try {
+    if (fs.existsSync(CACHE_FILE)) {
+      const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        list.forEach((m: any) => {
+          if (m && m.meterId && !globalMeters.has(m.meterId)) {
+            globalMeters.set(m.meterId, m);
+          }
+        });
+      }
+    }
+  } catch {}
+}
+
+loadMetersFromDisk();
+
 export const FIXED_API_KEY_LENGTH = 16;
 export const ONLINE_WINDOW_MS = 30 * 60 * 1000; // 30-minute window
 
@@ -195,6 +224,21 @@ export function generateKey(): string {
   let s = 'VP-';
   for (let i = 0; i < 13; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
   return s; // Exactly 16 chars
+}
+
+export function getNextMeterId(): string {
+  let maxSeq = 0;
+  for (const mId of globalMeters.keys()) {
+    const match = mId.match(/^MTR-(\d+)$/i);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num > maxSeq) {
+        maxSeq = num;
+      }
+    }
+  }
+  const nextNum = Math.max(globalMeters.size + 1, maxSeq + 1);
+  return `MTR-${String(nextNum).padStart(4, '0')}`;
 }
 
 export function getOnlineStatus(lastHeartbeat?: string | null): 'ONLINE' | 'OFFLINE' {
@@ -371,15 +415,33 @@ export default async function handler(req: any, res: any) {
 
   try {
     const payload = await parseRequestBody(req);
-    const meterId = payload.meterId?.trim();
-    if (!meterId) {
-      return sendResponse(res, 400, { success: false, error: "Validation failed: 'meterId' is required in request body" });
+    const now = new Date().toISOString();
+    const pathname = parsedUrl.pathname;
+
+    // 1. Check if this is a bulk meter sync from Firestore / UI
+    if (payload.action === 'sync_meters' || pathname.endsWith('/sync')) {
+      const metersToSync = Array.isArray(payload.meters) ? payload.meters : (payload.meter ? [payload.meter] : []);
+      for (const m of metersToSync) {
+        if (m && m.meterId) {
+          const current = globalMeters.get(m.meterId);
+          if (!current) {
+            globalMeters.set(m.meterId, m);
+          } else {
+            globalMeters.set(m.meterId, { ...current, ...m, apiKey: m.apiKey || current.apiKey });
+          }
+        }
+      }
+      saveMetersToDisk();
+      return sendResponse(res, 200, { success: true, count: globalMeters.size });
     }
 
-    const now = new Date().toISOString();
+    // 2. Check if this is an explicit meter registration from UI or /api/meters
+    if (payload.action === 'register_meter' || pathname.endsWith('/meters')) {
+      const meterId = payload.meterId?.trim() || getNextMeterId();
+      const assignedApiKey = (payload.apiKey && typeof payload.apiKey === 'string' && payload.apiKey.trim())
+        ? payload.apiKey.trim()
+        : generateKey();
 
-    // Check if this is an explicit meter registration from UI
-    if (payload.action === 'register_meter') {
       const newMeter = {
         id: meterId,
         meterId,
@@ -387,7 +449,7 @@ export default async function handler(req: any, res: any) {
         name: payload.name || `Smart Meter ${meterId}`,
         relayState: 'ON',
         status: 'OFFLINE',
-        apiKey: generateKey(),
+        apiKey: assignedApiKey,
         lastHeartbeat: null,
         latitude: Number(payload.latitude) || 6.5244,
         longitude: Number(payload.longitude) || 3.3792,
@@ -407,12 +469,22 @@ export default async function handler(req: any, res: any) {
         updatedAt: now,
       };
       globalMeters.set(meterId, newMeter);
+      saveMetersToDisk();
       return sendResponse(res, 201, { success: true, meter: newMeter });
+    }
+
+    const meterId = (payload.meterId || queryMeterId)?.trim();
+    if (!meterId) {
+      return sendResponse(res, 400, { success: false, error: "Validation failed: 'meterId' is required in request body" });
     }
 
     // Check if this is an API key rotation request (strictly auto-generate 16-character key)
     if (payload.action === 'rotate_key') {
-      const meter = globalMeters.get(meterId);
+      let meter = globalMeters.get(meterId);
+      if (!meter) {
+        loadMetersFromDisk();
+        meter = globalMeters.get(meterId);
+      }
       if (!meter) {
         return sendResponse(res, 404, { success: false, error: `Meter '${meterId}' not found` });
       }
@@ -420,11 +492,16 @@ export default async function handler(req: any, res: any) {
       meter.apiKey = newKey;
       meter.updatedAt = now;
       globalMeters.set(meterId, meter);
+      saveMetersToDisk();
       return sendResponse(res, 200, { success: true, meterId, apiKey: newKey, meter });
     }
 
     // STRICT CHECK: Meter MUST exist in database / registry. DO NOT AUTO-CREATE!
-    const existingMeter = globalMeters.get(meterId);
+    let existingMeter = globalMeters.get(meterId);
+    if (!existingMeter) {
+      loadMetersFromDisk();
+      existingMeter = globalMeters.get(meterId);
+    }
     if (!existingMeter) {
       return sendResponse(res, 404, {
         success: false,

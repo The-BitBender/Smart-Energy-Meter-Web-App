@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { analyzeTelemetryForAnomalies, TelemetrySample } from '../utils/anomalyDetector';
 import { AnomalyAlert, Meter, RelayState, TelemetryLog, NotificationPreferences } from '../types/energy';
 
@@ -6,6 +8,60 @@ export const activeMeters = new Map<string, Meter>();
 export const telemetryStore = new Map<string, TelemetryLog[]>();
 export const anomalyStore = new Map<string, AnomalyAlert[]>();
 export const userPreferencesStore = new Map<string, NotificationPreferences>();
+
+const CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_meters.json');
+
+export function saveMetersToDisk(): void {
+  try {
+    const list = Array.from(activeMeters.values());
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (err) {
+    // Non-fatal disk sync error
+  }
+}
+
+export function loadMetersFromDisk(): void {
+  try {
+    if (fs.existsSync(CACHE_FILE)) {
+      const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        list.forEach((m: Meter) => {
+          if (m && m.meterId && !activeMeters.has(m.meterId)) {
+            activeMeters.set(m.meterId, m);
+          }
+        });
+      }
+    }
+  } catch (err) {
+    // Non-fatal disk read error
+  }
+}
+
+// Initial hydration from disk
+loadMetersFromDisk();
+
+export function syncMeters(meters: Meter[]): void {
+  if (!Array.isArray(meters)) return;
+  for (const m of meters) {
+    if (m && m.meterId) {
+      const existing = activeMeters.get(m.meterId);
+      if (!existing) {
+        activeMeters.set(m.meterId, {
+          ...m,
+          status: evaluateOnlineStatus(m.lastHeartbeat),
+        });
+      } else {
+        activeMeters.set(m.meterId, {
+          ...existing,
+          ...m,
+          apiKey: m.apiKey || existing.apiKey,
+        });
+      }
+    }
+  }
+  saveMetersToDisk();
+}
 
 // Custom error with HTTP status code
 export class IngestionError extends Error {
@@ -100,11 +156,13 @@ export interface IngestPayload {
  */
 export function deleteMeter(meterId: string): boolean {
   if (!activeMeters.has(meterId)) {
-    return false;
+    loadMetersFromDisk();
+    if (!activeMeters.has(meterId)) return false;
   }
   activeMeters.delete(meterId);
   telemetryStore.delete(meterId);
   anomalyStore.delete(meterId);
+  saveMetersToDisk();
   return true;
 }
 
@@ -112,7 +170,11 @@ export function deleteMeter(meterId: string): boolean {
  * Rotate API key for a meter - strictly auto-generated with fixed length (16 chars)
  */
 export function rotateMeterApiKey(meterId: string): string {
-  const meter = activeMeters.get(meterId);
+  let meter = activeMeters.get(meterId);
+  if (!meter) {
+    loadMetersFromDisk();
+    meter = activeMeters.get(meterId);
+  }
   if (!meter) {
     throw new IngestionError(404, `Meter '${meterId}' not found`);
   }
@@ -122,6 +184,7 @@ export function rotateMeterApiKey(meterId: string): string {
   meter.apiKey = newKey;
   meter.updatedAt = new Date().toISOString();
   activeMeters.set(meterId, meter);
+  saveMetersToDisk();
   return newKey;
 }
 
@@ -129,7 +192,11 @@ export function rotateMeterApiKey(meterId: string): string {
  * Update general meter properties (name, address, GPS)
  */
 export function updateMeter(meterId: string, updates: Partial<Meter>): Meter {
-  const meter = activeMeters.get(meterId);
+  let meter = activeMeters.get(meterId);
+  if (!meter) {
+    loadMetersFromDisk();
+    meter = activeMeters.get(meterId);
+  }
   if (!meter) {
     throw new IngestionError(404, `Meter '${meterId}' not found`);
   }
@@ -143,6 +210,7 @@ export function updateMeter(meterId: string, updates: Partial<Meter>): Meter {
   }
   meter.updatedAt = new Date().toISOString();
   activeMeters.set(meterId, meter);
+  saveMetersToDisk();
   return meter;
 }
 
@@ -166,7 +234,12 @@ export function processTelemetryIngest(payload: IngestPayload, headerApiKey?: st
   const meterId = rawMeterId.trim();
 
   // 1. Strict Meter Existence Check - NO auto-creation
-  const meter = activeMeters.get(meterId);
+  let meter = activeMeters.get(meterId);
+  if (!meter) {
+    loadMetersFromDisk();
+    meter = activeMeters.get(meterId);
+  }
+
   if (!meter) {
     throw new IngestionError(
       404,

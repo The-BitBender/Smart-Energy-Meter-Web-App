@@ -1,4 +1,6 @@
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 
 const app = express();
 app.use(express.json());
@@ -55,6 +57,33 @@ const activeMeters = new Map<string, MeterData>();
 const telemetryStore = new Map<string, any[]>();
 const anomalyStore = new Map<string, any[]>();
 const userPreferencesStore = new Map<string, any>();
+
+const CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_meters.json');
+
+function saveMetersToDisk() {
+  try {
+    const list = Array.from(activeMeters.values());
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch {}
+}
+
+function loadMetersFromDisk() {
+  try {
+    if (fs.existsSync(CACHE_FILE)) {
+      const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        list.forEach((m: MeterData) => {
+          if (m && m.meterId && !activeMeters.has(m.meterId)) {
+            activeMeters.set(m.meterId, m);
+          }
+        });
+      }
+    }
+  } catch {}
+}
+
+loadMetersFromDisk();
 
 export const ONLINE_WINDOW_MS = 30 * 60 * 1000; // 30-minute window
 export function evaluateOnline(lastHeartbeat?: string | null): 'ONLINE' | 'OFFLINE' {
@@ -157,7 +186,11 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], (req, res) => {
     }
 
     // STRICT CHECK: Meter MUST already exist
-    const meter = activeMeters.get(meterId);
+    let meter = activeMeters.get(meterId);
+    if (!meter) {
+      loadMetersFromDisk();
+      meter = activeMeters.get(meterId);
+    }
     if (!meter) {
       return res.status(404).json({
         success: false,
@@ -508,7 +541,11 @@ app.post(['/api/meters', '/meters'], (req, res) => {
     const meterId = (body.meterId?.trim()) || getNextMeterId();
     const now = new Date().toISOString();
 
-    // All dashboard metrics initialize strictly to 0.0, status to OFFLINE, lastHeartbeat to null
+    // Always auto-generate 16-character secure API key if not provided
+    const assignedApiKey = (body.apiKey && typeof body.apiKey === 'string' && body.apiKey.trim())
+      ? body.apiKey.trim()
+      : generate16CharKey();
+
     const newMeter: MeterData = {
       id: meterId,
       meterId,
@@ -516,8 +553,7 @@ app.post(['/api/meters', '/meters'], (req, res) => {
       name: body.name || `Smart Meter ${meterId}`,
       relayState: 'ON',
       status: 'OFFLINE',
-      // Always auto-generate 16-character secure API key
-      apiKey: generate16CharKey(),
+      apiKey: assignedApiKey,
       lastHeartbeat: null as any,
       latitude: Number(body.latitude) || 6.5244,
       longitude: Number(body.longitude) || 3.3792,
@@ -538,9 +574,41 @@ app.post(['/api/meters', '/meters'], (req, res) => {
     };
 
     activeMeters.set(meterId, newMeter);
+    saveMetersToDisk();
     res.status(201).json({ success: true, meter: newMeter });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to save meter' });
+  }
+});
+
+// Bulk sync meters from Firestore / UI
+app.post(['/api/meters/sync', '/meters/sync'], (req, res) => {
+  try {
+    seedDemoData();
+    const body = req.body || {};
+    const metersToSync = Array.isArray(body.meters) ? body.meters : (body.meter ? [body.meter] : []);
+    for (const m of metersToSync) {
+      if (m && m.meterId) {
+        const existing = activeMeters.get(m.meterId);
+        if (!existing) {
+          activeMeters.set(m.meterId, {
+            ...m,
+            apiKey: m.apiKey || generate16CharKey(),
+            status: evaluateOnline(m.lastHeartbeat),
+          });
+        } else {
+          activeMeters.set(m.meterId, {
+            ...existing,
+            ...m,
+            apiKey: m.apiKey || existing.apiKey,
+          });
+        }
+      }
+    }
+    saveMetersToDisk();
+    res.json({ success: true, count: activeMeters.size });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

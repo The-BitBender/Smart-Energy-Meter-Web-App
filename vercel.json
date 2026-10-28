@@ -15,6 +15,18 @@
       "destination": "/api/telemetry/ingest"
     },
     {
+      "source": "/api/meters/sync",
+      "destination": "/api/telemetry/ingest"
+    },
+    {
+      "source": "/api/meters",
+      "destination": "/api/telemetry/ingest"
+    },
+    {
+      "source": "/api/meters/(.*)",
+      "destination": "/api/telemetry/ingest"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/index"
     },
