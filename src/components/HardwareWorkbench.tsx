@@ -47,7 +47,7 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
   const [codeType, setCodeType] = useState<'arduino' | 'micropython'>('arduino');
 
   // Trigger quick simulation scenario
-  const handlePresetScenario = (scenario: 'normal' | 'heavy' | 'theft_shunt' | 'reverse' | 'voltage_sag') => {
+  const handlePresetScenario = (scenario: 'normal' | 'heavy' | 'theft_shunt' | 'reverse' | 'voltage_sag' | 'overvoltage_critical' | 'overvoltage_warning' | 'undervoltage_warning' | 'undervoltage_critical') => {
     if (scenario === 'normal') {
       setSimVoltage(230.2);
       setSimCurrent(5.4);
@@ -73,6 +73,26 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
       setSimCurrent(31.2);
       setSimPF(0.89);
       setSimFreq(48.9);
+    } else if (scenario === 'overvoltage_critical') {
+      setSimVoltage(256.4);
+      setSimCurrent(9.2);
+      setSimPF(0.97);
+      setSimFreq(50.0);
+    } else if (scenario === 'overvoltage_warning') {
+      setSimVoltage(246.8);
+      setSimCurrent(8.4);
+      setSimPF(0.96);
+      setSimFreq(50.02);
+    } else if (scenario === 'undervoltage_warning') {
+      setSimVoltage(192.5);
+      setSimCurrent(10.8);
+      setSimPF(0.95);
+      setSimFreq(49.85);
+    } else if (scenario === 'undervoltage_critical') {
+      setSimVoltage(174.0);
+      setSimCurrent(14.5);
+      setSimPF(0.91);
+      setSimFreq(49.4);
     }
   };
 
@@ -249,11 +269,44 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => handlePresetScenario('voltage_sag')}
+                  onClick={() => handlePresetScenario('overvoltage_critical')}
+                  className="p-3 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-400 text-left transition-colors shadow-xs"
+                >
+                  <div className="text-xs font-bold text-rose-300 flex items-center space-x-1">
+                    <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Over-voltage (&ge; 250V)</span>
+                  </div>
+                  <div className="text-[10px] text-rose-200 font-mono mt-0.5">256.4V • Critical Hazard</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePresetScenario('overvoltage_warning')}
                   className="p-3 rounded-xl bg-amber-950/70 hover:bg-amber-900/70 border border-amber-400/40 text-left transition-colors shadow-xs"
                 >
-                  <div className="text-xs font-bold text-amber-300">Severe Voltage Sag</div>
-                  <div className="text-[10px] text-amber-200 font-mono mt-0.5">182V • 31.2A (High Tap)</div>
+                  <div className="text-xs font-bold text-amber-300">Over-voltage (Warning)</div>
+                  <div className="text-[10px] text-amber-200 font-mono mt-0.5">246.8V • Approaching Limit</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePresetScenario('undervoltage_warning')}
+                  className="p-3 rounded-xl bg-amber-950/70 hover:bg-amber-900/70 border border-amber-400/40 text-left transition-colors shadow-xs"
+                >
+                  <div className="text-xs font-bold text-amber-300">Under-voltage (180-207V)</div>
+                  <div className="text-[10px] text-amber-200 font-mono mt-0.5">192.5V • Sag Warning</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePresetScenario('undervoltage_critical')}
+                  className="p-3 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-400 text-left transition-colors shadow-xs"
+                >
+                  <div className="text-xs font-bold text-rose-300 flex items-center space-x-1">
+                    <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Under-voltage (&lt; 180V)</span>
+                  </div>
+                  <div className="text-[10px] text-rose-200 font-mono mt-0.5">174.0V • Critical Brownout</div>
                 </button>
 
                 <div className="p-3 rounded-xl bg-[#003833] border border-white/15 text-left flex flex-col justify-center">

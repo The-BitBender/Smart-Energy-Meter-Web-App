@@ -11,7 +11,9 @@ export type AnomalyType =
   | 'UNMETERED_BYPASS'
   | 'SURGE_SPIKE'
   | 'TAMPER_ZERO_READING'
-  | 'FREQUENCY_INSTABILITY';
+  | 'FREQUENCY_INSTABILITY'
+  | 'UNDERVOLTAGE'
+  | 'OVERVOLTAGE';
 
 export interface MeterLocation {
   latitude: number;

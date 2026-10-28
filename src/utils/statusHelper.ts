@@ -1,4 +1,4 @@
-import { Meter } from '../types/energy';
+import { Meter, AnomalyAlert } from '../types/energy';
 
 // 30-minute window in milliseconds
 export const ONLINE_THRESHOLD_MS = 30 * 60 * 1000; // 1,800,000 ms
@@ -150,3 +150,74 @@ export function reconcileMeter(existing: Meter | null | undefined, incoming: Met
     apiKey: incoming.apiKey || existing.apiKey,
   };
 }
+
+/**
+ * Robust Anomaly Reconciliation:
+ * Prevents anomaly lists from fluctuating between 1 and 2 (or bouncing) by:
+ * 1. Merging existing and incoming alerts by their unique ID
+ * 2. Merging any newly simulated local alerts with server-assigned alerts
+ * 3. Preserving resolved statuses once resolved
+ * 4. Maintaining strict descending sort order by createdAt timestamp
+ */
+export function reconcileAnomalies(
+  existing: AnomalyAlert[] = [],
+  incoming: AnomalyAlert[] = []
+): AnomalyAlert[] {
+  const map = new Map<string, AnomalyAlert>();
+
+  // 1. Load existing alerts
+  for (const a of existing) {
+    if (a && a.id) {
+      map.set(a.id, a);
+    }
+  }
+
+  // 2. Merge incoming alerts
+  for (const inc of incoming) {
+    if (!inc || !inc.id) continue;
+    const prev = map.get(inc.id);
+
+    if (!prev) {
+      // Check if there is an existing alert for the same meter and type created within 5 seconds
+      // (handles client-optimistic ID vs server-generated ID deduplication)
+      let matchedKey: string | null = null;
+      const incTime = new Date(inc.createdAt).getTime();
+
+      for (const [key, val] of map.entries()) {
+        if (val.meterId === inc.meterId && val.type === inc.type) {
+          const valTime = new Date(val.createdAt).getTime();
+          if (Math.abs(incTime - valTime) < 5000) {
+            matchedKey = key;
+            break;
+          }
+        }
+      }
+
+      if (matchedKey) {
+        const existingAlert = map.get(matchedKey)!;
+        map.delete(matchedKey);
+        map.set(inc.id, {
+          ...inc,
+          status: existingAlert.status === 'RESOLVED' ? 'RESOLVED' : inc.status,
+        });
+      } else {
+        map.set(inc.id, inc);
+      }
+    } else {
+      // If either has been resolved, keep RESOLVED status
+      const status = (prev.status === 'RESOLVED' || inc.status === 'RESOLVED') ? 'RESOLVED' : inc.status;
+      map.set(inc.id, {
+        ...prev,
+        ...inc,
+        status,
+      });
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => {
+    const timeA = new Date(a.createdAt).getTime() || 0;
+    const timeB = new Date(b.createdAt).getTime() || 0;
+    return timeB - timeA;
+  });
+}
+

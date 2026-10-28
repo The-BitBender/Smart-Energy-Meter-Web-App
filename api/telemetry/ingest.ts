@@ -90,7 +90,52 @@ export function analyzeTelemetryForAnomalies(sample: TelemetrySample): AnomalyDe
     };
   }
 
-  // 4. Overcurrent & Surge Hazard
+  // 4. Voltage Anomalies (Over-voltage >= 250V Critical, 242-250V Warning; Under-voltage < 180V Critical, 180-207V Warning)
+  if (voltage >= 250) {
+    return {
+      hasAnomaly: true,
+      type: 'OVERVOLTAGE',
+      severity: 'CRITICAL',
+      title: 'Critical Over-voltage Hazard (>= 250V)',
+      description: `Dangerous line over-voltage: measured ${voltage.toFixed(1)}V (>= 250V threshold). Extreme risk of insulation breakdown, equipment fire, and immediate electronics destruction.`,
+      recommendation: 'Remotely trip meter relay or isolate sensitive appliances and electronic equipment immediately.',
+    };
+  }
+
+  if (voltage < 180) {
+    return {
+      hasAnomaly: true,
+      type: 'UNDERVOLTAGE',
+      severity: 'CRITICAL',
+      title: 'Critical Under-voltage Sag (< 180V)',
+      description: `Severe line under-voltage sag: measured ${voltage.toFixed(1)}V (< 180V threshold). Severe brownout condition risking motor compressor burnout and equipment failure.`,
+      recommendation: 'Disconnect AC compressors, refrigeration units, and high-draw inductive equipment to prevent winding burnout.',
+    };
+  }
+
+  if (voltage >= 180 && voltage < 207) {
+    return {
+      hasAnomaly: true,
+      type: 'UNDERVOLTAGE',
+      severity: 'MEDIUM',
+      title: 'Under-voltage Warning (180V - 207V)',
+      description: `Line voltage sagged to ${voltage.toFixed(1)}V (below standard 207V lower limit, within 180V - 207V warning band). Equipment may experience degraded performance or brownout stress.`,
+      recommendation: 'Inspect service entrance wiring, check distribution transformer tap, and avoid running heavy inductive motors.',
+    };
+  }
+
+  if (voltage >= 242 && voltage < 250) {
+    return {
+      hasAnomaly: true,
+      type: 'OVERVOLTAGE',
+      severity: 'MEDIUM',
+      title: 'Over-voltage Warning (242V - 250V)',
+      description: `Line voltage elevated to ${voltage.toFixed(1)}V (exceeds nominal band, approaching 250V critical limit).`,
+      recommendation: 'Monitor grid voltage regulation and ensure surge arresters are active.',
+    };
+  }
+
+  // 5. Overcurrent & Surge Hazard
   if (current > 42 || activePower > 9500) {
     return {
       hasAnomaly: true,
@@ -102,7 +147,7 @@ export function analyzeTelemetryForAnomalies(sample: TelemetrySample): AnomalyDe
     };
   }
 
-  // 5. Severe Voltage Sag
+  // 6. Severe Voltage Sag Under Load
   if (voltage < 190 && current > 20) {
     return {
       hasAnomaly: true,
@@ -114,7 +159,7 @@ export function analyzeTelemetryForAnomalies(sample: TelemetrySample): AnomalyDe
     };
   }
 
-  // 6. Frequency Deviation
+  // 7. Frequency Deviation
   if (frequency < 47.5 || frequency > 52.5) {
     return {
       hasAnomaly: true,
@@ -123,18 +168,6 @@ export function analyzeTelemetryForAnomalies(sample: TelemetrySample): AnomalyDe
       title: 'Grid Frequency Anomaly',
       description: `Frequency shifted to ${frequency.toFixed(2)}Hz (Normal range: 49.5 - 50.5 Hz). Potential local generator oscillation or grid instability.`,
       recommendation: 'Monitor frequency trend; notify local grid operator if frequency fails to recover.',
-    };
-  }
-
-  // 7. Voltage Swell
-  if (voltage > 265) {
-    return {
-      hasAnomaly: true,
-      type: 'SURGE_SPIKE',
-      severity: 'HIGH',
-      title: 'Dangerous Overvoltage Swell',
-      description: `Voltage surged to ${voltage.toFixed(1)}V (> 265V threshold). Electronics and appliances risk immediate damage.`,
-      recommendation: 'Recommend activating surge protection or isolating sensitive electronic loads.',
     };
   }
 
@@ -607,9 +640,10 @@ export default async function handler(req: any, res: any) {
     if (meterLogs.length > 200) meterLogs.shift();
     globalLogs.set(meterId, meterLogs);
 
+    let anomalyAlert: any = null;
     if (anomalyResult.hasAnomaly) {
       const alertId = `ALT-${Date.now()}`;
-      const alert = {
+      anomalyAlert = {
         id: alertId,
         meterId,
         ownerUid: existingMeter.ownerUid,
@@ -629,7 +663,7 @@ export default async function handler(req: any, res: any) {
         createdAt: now,
       };
       const alerts = globalAnomalies.get(meterId) || [];
-      alerts.unshift(alert);
+      alerts.unshift(anomalyAlert);
       if (alerts.length > 50) alerts.pop();
       globalAnomalies.set(meterId, alerts);
     }
@@ -640,6 +674,7 @@ export default async function handler(req: any, res: any) {
       relayState: existingMeter.relayState,
       anomalyDetected: anomalyResult.hasAnomaly,
       anomaly: anomalyResult,
+      anomalyAlert,
       meter: existingMeter,
       log,
       telemetryLog: log,

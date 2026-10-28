@@ -37,7 +37,7 @@ import { SettingsTab } from './components/SettingsTab';
 import { AuthPage } from './components/AuthPage';
 import { MeterOnboardingModal } from './components/MeterOnboardingModal';
 import { Activity, ShieldCheck, Zap, Radio, AlertCircle, Plus, Cpu } from 'lucide-react';
-import { reconcileMeter, formatLastSeen, generate16CharApiKey, formatMeterId } from './utils/statusHelper';
+import { reconcileMeter, reconcileAnomalies, formatLastSeen, generate16CharApiKey, formatMeterId } from './utils/statusHelper';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -248,7 +248,7 @@ export default function App() {
             setTelemetryLogs(data.logs);
           }
           if (data?.alerts && data.alerts.length > 0) {
-            setAnomalies(data.alerts);
+            setAnomalies(prev => reconcileAnomalies(prev, data.alerts));
           }
         }
 
@@ -263,7 +263,7 @@ export default function App() {
         if (anomRes.ok) {
           const anomData = await anomRes.json();
           if (anomData.alerts && anomData.alerts.length > 0) {
-            setAnomalies(anomData.alerts);
+            setAnomalies(prev => reconcileAnomalies(prev, anomData.alerts));
           }
         }
 
@@ -340,7 +340,7 @@ export default function App() {
         unsubscribeAnom = onSnapshot(anomQuery, (snapshot) => {
           const items: AnomalyAlert[] = [];
           snapshot.forEach(d => items.push({ ...(d.data() as AnomalyAlert), id: d.id }));
-          if (items.length > 0) setAnomalies(items);
+          if (items.length > 0) setAnomalies(prev => reconcileAnomalies(prev, items));
         }, (error) => {
           console.warn('Firestore anomalies stream:', error.message);
         });
@@ -550,6 +550,14 @@ export default function App() {
         anomalySeverity: 'LOW',
         anomalyDescription: 'Operating normally',
       } : null);
+
+      if (user) {
+        try {
+          await updateDoc(doc(db, 'meters', activeMeter.meterId, 'anomalies', alertId), {
+            status: 'RESOLVED',
+          });
+        } catch {}
+      }
     } catch (e) {
       console.error('Resolve alert error:', e);
     }
@@ -765,7 +773,18 @@ export default function App() {
             telemetrySnapshot: incomingLog || sampleData,
             createdAt: new Date().toISOString(),
           };
-          setAnomalies(prev => [alertObj, ...prev]);
+          setAnomalies(prev => reconcileAnomalies(prev, [alertObj]));
+
+          if (user) {
+            try {
+              setDoc(doc(db, 'meters', activeMeter.meterId, 'anomalies', alertObj.id), {
+                ...alertObj,
+                ownerUid: user.uid,
+              }, { merge: true });
+            } catch (fsErr) {
+              console.warn('Firestore sync anomaly error:', fsErr);
+            }
+          }
         }
         return data;
       }

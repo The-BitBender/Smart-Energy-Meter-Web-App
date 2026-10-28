@@ -91,43 +91,56 @@ export const AnomalyShieldView: React.FC<AnomalyShieldViewProps> = ({
       </div>
 
       {/* Forensic Detection Vector Guide Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="p-5 rounded-2xl bg-[#005149] border border-white/20 shadow-md text-white hover:border-white/40 transition-all">
+          <div className="flex items-center space-x-2 text-rose-300 font-extrabold text-xs uppercase tracking-wide">
+            <ShieldAlert className="w-4 h-4 text-rose-300" />
+            <span className="text-white">Over-voltage Surge</span>
+          </div>
+          <p className="text-xs text-teal-100 mt-2 leading-relaxed">
+            Flags dangerous overvoltage conditions: Line voltage reaching &ge; 250V is classified Critical Hazard; voltages from 242V to 250V trigger high-voltage Warning.
+          </p>
+          <div className="mt-3 text-[11px] font-mono text-rose-200 bg-[#003833] p-2 rounded-lg border border-white/15 font-bold">
+            &ge; 250V: Critical | 242-250V: Warning
+          </div>
+        </div>
+
+        <div className="p-5 rounded-2xl bg-[#005149] border border-white/20 shadow-md text-white hover:border-white/40 transition-all">
+          <div className="flex items-center space-x-2 text-amber-300 font-extrabold text-xs uppercase tracking-wide">
+            <AlertTriangle className="w-4 h-4 text-amber-300" />
+            <span className="text-white">Under-voltage Sag</span>
+          </div>
+          <p className="text-xs text-teal-100 mt-2 leading-relaxed">
+            Severe line voltage collapse below 180V triggers Critical Sag hazard; line voltages sagged in the 180V - 207V band trigger brownout Warning.
+          </p>
+          <div className="mt-3 text-[11px] font-mono text-amber-300 bg-[#003833] p-2 rounded-lg border border-white/15 font-bold">
+            &lt; 180V: Critical | 180-207V: Warning
+          </div>
+        </div>
+
         <div className="p-5 rounded-2xl bg-[#005149] border border-white/20 shadow-md text-white hover:border-white/40 transition-all">
           <div className="flex items-center space-x-2 text-teal-200 font-extrabold text-xs uppercase tracking-wide">
             <Zap className="w-4 h-4 text-white" />
             <span className="text-white">Current Shunt Bypass</span>
           </div>
           <p className="text-xs text-teal-100 mt-2 leading-relaxed">
-            Flags when grid voltage is energized (~230V) but reported current collapses to 0.00A while historical usage suggests active branch circuits, or sudden 95% drop without load stepdown.
+            Flags when grid voltage is energized (~230V) but reported current collapses to 0.00A while historical usage suggests active branch circuits.
           </p>
-          <div className="mt-3 text-[11px] font-mono text-white bg-[#003833] p-2.5 rounded-lg border border-white/15 font-bold">
-            Trigger: V &gt; 200V &amp; ΔP &gt; 1200W collapse
+          <div className="mt-3 text-[11px] font-mono text-white bg-[#003833] p-2 rounded-lg border border-white/15 font-bold">
+            Trigger: V &gt; 200V &amp; ΔP &gt; 1200W
           </div>
         </div>
 
         <div className="p-5 rounded-2xl bg-[#005149] border border-white/20 shadow-md text-white hover:border-white/40 transition-all">
           <div className="flex items-center space-x-2 text-teal-200 font-extrabold text-xs uppercase tracking-wide">
             <Cpu className="w-4 h-4 text-white" />
-            <span className="text-white">Unmetered Phase Inversion</span>
+            <span className="text-white">Unmetered Bypass</span>
           </div>
           <p className="text-xs text-teal-100 mt-2 leading-relaxed">
-            Flags high apparent power (S = V × I &gt; 800VA) with suspiciously low active power (&lt; 40W) and distorted power factor, indicating missing neutral or ground-return theft.
+            High apparent power (S &gt; 800VA) with active power &lt; 40W and distorted PF, or current flowing while commanded relay is in OFF state.
           </p>
-          <div className="mt-3 text-[11px] font-mono text-white bg-[#003833] p-2.5 rounded-lg border border-white/15 font-bold">
-            Trigger: S &gt; 800VA &amp; P &lt; 40W &amp; PF &lt; 0.20
-          </div>
-        </div>
-
-        <div className="p-5 rounded-2xl bg-[#005149] border border-white/20 shadow-md text-white hover:border-white/40 transition-all">
-          <div className="flex items-center space-x-2 text-teal-200 font-extrabold text-xs uppercase tracking-wide">
-            <AlertTriangle className="w-4 h-4 text-amber-300" />
-            <span className="text-white">Voltage Sag &amp; High Tap</span>
-          </div>
-          <p className="text-xs text-teal-100 mt-2 leading-relaxed">
-            Severe line voltage collapse (&lt; 190V) combined with high amperage (&gt; 20A), indicating high contact impedance, unauthorized upstream tapping, or overheated service cables.
-          </p>
-          <div className="mt-3 text-[11px] font-mono text-amber-300 bg-[#003833] p-2.5 rounded-lg border border-white/15 font-bold">
-            Trigger: V &lt; 190V &amp; I &gt; 20A
+          <div className="mt-3 text-[11px] font-mono text-white bg-[#003833] p-2 rounded-lg border border-white/15 font-bold">
+            Trigger: S &gt; 800VA &amp; P &lt; 40W
           </div>
         </div>
       </div>

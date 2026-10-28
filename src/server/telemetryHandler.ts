@@ -398,9 +398,10 @@ export function processTelemetryIngest(payload: IngestPayload, headerApiKey?: st
   telemetryStore.set(meterId, currentLogs);
 
   // If anomaly detected, log an active alert
+  let anomalyAlert: AnomalyAlert | undefined = undefined;
   if (anomalyResult.hasAnomaly) {
     const alertId = `ALT-${Date.now()}`;
-    const alert: AnomalyAlert = {
+    anomalyAlert = {
       id: alertId,
       meterId,
       ownerUid: meter.ownerUid,
@@ -421,7 +422,7 @@ export function processTelemetryIngest(payload: IngestPayload, headerApiKey?: st
     };
 
     const meterAlerts = anomalyStore.get(meterId) || [];
-    meterAlerts.unshift(alert);
+    meterAlerts.unshift(anomalyAlert);
     if (meterAlerts.length > 100) meterAlerts.pop();
     anomalyStore.set(meterId, meterAlerts);
 
@@ -438,6 +439,7 @@ export function processTelemetryIngest(payload: IngestPayload, headerApiKey?: st
     relayState: meter.relayState,
     anomalyDetected: anomalyResult.hasAnomaly,
     anomaly: anomalyResult,
+    anomalyAlert,
     meter,
     log,
     timestamp: now,

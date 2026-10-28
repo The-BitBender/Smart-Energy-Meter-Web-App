@@ -293,6 +293,30 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], (req, res) => {
       anomalySeverity = 'CRITICAL';
       anomalyDesc = `Current of ${current.toFixed(2)}A detected while relay is OFF`;
       recommendation = 'Check physical wiring across relay contacts.';
+    } else if (voltage >= 250) {
+      hasAnomaly = true;
+      anomalyType = 'OVERVOLTAGE';
+      anomalySeverity = 'CRITICAL';
+      anomalyDesc = `Critical over-voltage hazard: line voltage reached ${voltage.toFixed(1)}V (>= 250V threshold). High risk of electronics destruction and electrical fire.`;
+      recommendation = 'Remotely trip meter relay or isolate sensitive appliances immediately.';
+    } else if (voltage < 180) {
+      hasAnomaly = true;
+      anomalyType = 'UNDERVOLTAGE';
+      anomalySeverity = 'CRITICAL';
+      anomalyDesc = `Critical under-voltage sag: line voltage dropped to ${voltage.toFixed(1)}V (< 180V threshold). Risk of motor burnout and power supply failure.`;
+      recommendation = 'Disconnect heavy inductive loads and compressors immediately.';
+    } else if (voltage >= 180 && voltage < 207) {
+      hasAnomaly = true;
+      anomalyType = 'UNDERVOLTAGE';
+      anomalySeverity = 'MEDIUM';
+      anomalyDesc = `Under-voltage warning: line voltage sagged to ${voltage.toFixed(1)}V (within 180V - 207V warning band).`;
+      recommendation = 'Check transformer tap and monitor line voltage.';
+    } else if (voltage >= 242 && voltage < 250) {
+      hasAnomaly = true;
+      anomalyType = 'OVERVOLTAGE';
+      anomalySeverity = 'MEDIUM';
+      anomalyDesc = `Over-voltage warning: line voltage elevated to ${voltage.toFixed(1)}V (approaching 250V critical limit).`;
+      recommendation = 'Monitor grid regulation; ensure surge suppression active.';
     } else if (current > 42 || activePower > 9500) {
       hasAnomaly = true;
       anomalyType = 'SURGE_SPIKE';
@@ -347,6 +371,34 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], (req, res) => {
     if (meterLogs.length > 200) meterLogs.shift();
     telemetryStore.set(meterId, meterLogs);
 
+    let anomalyAlert: any = null;
+    if (hasAnomaly) {
+      const alertId = `ALT-${Date.now()}`;
+      anomalyAlert = {
+        id: alertId,
+        meterId,
+        ownerUid: meter.ownerUid,
+        type: anomalyType,
+        severity: anomalySeverity,
+        title: hasAnomaly ? anomalyType : 'Optimal Grid Operation',
+        description: anomalyDesc,
+        status: 'ACTIVE',
+        telemetrySnapshot: {
+          voltage,
+          current,
+          activePower,
+          reactivePower,
+          energy,
+          timestamp: now,
+        },
+        createdAt: now,
+      };
+      const alerts = anomalyStore.get(meterId) || [];
+      alerts.unshift(anomalyAlert);
+      if (alerts.length > 50) alerts.pop();
+      anomalyStore.set(meterId, alerts);
+    }
+
     res.json({
       success: true,
       meterId,
@@ -360,6 +412,7 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], (req, res) => {
         description: anomalyDesc,
         recommendation,
       },
+      anomalyAlert,
       meter,
       log,
       telemetryLog: log,
