@@ -414,25 +414,29 @@ export default function App() {
 
   // Register & Link New Meter (used both in post-signup wizard and link modal)
   const handleLinkNewMeter = async (meterData: {
-    meterId: string;
+    meterId?: string;
     name: string;
-    apiKey: string;
+    apiKey?: string;
     latitude: number;
     longitude: number;
     address: string;
-  }) => {
+  }): Promise<Meter> => {
     setIsLinkLoading(true);
     const ownerUid = user ? user.uid : 'demo_user';
     const now = new Date().toISOString();
 
+    // Auto-generate meterId if not supplied (based on total meters count)
+    const assignedMeterId = meterData.meterId?.trim() || formatMeterId(meters.length + 1);
+    const assignedApiKey = meterData.apiKey?.trim() || generate16CharApiKey();
+
     const newMeter: Meter = {
-      id: meterData.meterId,
-      meterId: meterData.meterId,
+      id: assignedMeterId,
+      meterId: assignedMeterId,
       ownerUid,
-      name: meterData.name || `Smart Meter ${meterData.meterId}`,
+      name: meterData.name || `Smart Meter ${assignedMeterId}`,
       relayState: 'ON',
       status: 'OFFLINE',
-      apiKey: meterData.apiKey || generate16CharApiKey(),
+      apiKey: assignedApiKey,
       lastHeartbeat: null as any,
       latitude: meterData.latitude,
       longitude: meterData.longitude,
@@ -458,7 +462,12 @@ export default function App() {
         const res = await fetch('/api/meters', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...meterData, ownerUid }),
+          body: JSON.stringify({
+            ...meterData,
+            meterId: assignedMeterId,
+            apiKey: assignedApiKey,
+            ownerUid,
+          }),
         });
 
         if (res.ok) {
@@ -495,9 +504,9 @@ export default function App() {
       setAnomalies([]);
       setMeters(prev => [newMeter, ...prev.filter(m => m.meterId !== newMeter.meterId)]);
       setActiveMeter(newMeter);
-      setIsOnboardingOpen(false);
-      setIsLinkModalOpen(false);
       setActiveTab('dashboard');
+
+      return newMeter;
     } catch (generalErr: any) {
       console.error('Error in handleLinkNewMeter:', generalErr);
       throw new Error(generalErr?.message || 'Could not complete meter setup. Please try again.');
@@ -1021,6 +1030,7 @@ export default function App() {
         isOpen={isOnboardingOpen}
         user={user}
         onComplete={handleLinkNewMeter}
+        onClose={() => setIsOnboardingOpen(false)}
         isLoading={isLinkLoading}
         existingMetersCount={meters.length}
       />
