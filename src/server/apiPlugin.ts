@@ -16,89 +16,14 @@ import {
   incrementMetersCreated,
   saveMetersToDisk,
   syncMeters,
-  deletedMeterIds
+  deletedMeterIds,
+  resetAllMeters
 } from './telemetryHandler';
 import { Meter, NotificationPreferences } from '../types/energy';
 
-// Helper to seed realistic demo data on initialization
+// Do not auto-seed demo meters so deleted/clean databases remain completely empty
 function ensureDemoMeters() {
-  if (activeMeters.size > 0) return;
-
-  const demoMeterId = 'ESP32-MTR-8842';
-  if (deletedMeterIds.has(demoMeterId)) return;
-  const now = Date.now();
-
-  const demoMeter: Meter = {
-    id: demoMeterId,
-    meterId: demoMeterId,
-    ownerUid: 'demo_user',
-    name: 'Main Feeder Panel - Workshop A',
-    relayState: 'ON',
-    status: 'ONLINE',
-    apiKey: 'VP-8842-SECURE-KEY',
-    lastHeartbeat: new Date(now).toISOString(),
-    latitude: 6.5244,
-    longitude: 3.3792,
-    address: 'Plot 12 Commercial Way, Industrial Estate, Lagos',
-    voltage: 231.8,
-    current: 14.6,
-    activePower: 3315.0,
-    reactivePower: 410.0,
-    powerFactor: 0.98,
-    frequency: 50.02,
-    totalEnergy: 148.62,
-    hasAnomaly: false,
-    anomalyType: 'NONE',
-    anomalySeverity: 'LOW',
-    anomalyDescription: 'Operating normally',
-    createdAt: new Date(now - 86400000 * 7).toISOString(),
-    updatedAt: new Date(now).toISOString(),
-  };
-
-  activeMeters.set(demoMeterId, demoMeter);
-
-  // Generate 24 hours of realistic telemetry logs (every 30 mins)
-  const logs = [];
-  let cumulativeEnergy = 132.0;
-
-  for (let i = 48; i >= 0; i--) {
-    const time = new Date(now - i * 30 * 60 * 1000).toISOString();
-    const hour = (new Date(time)).getHours();
-    let baseCurrent = 5.0;
-    if (hour >= 8 && hour <= 18) {
-      baseCurrent = 12.0 + Math.sin(hour / 3) * 6.0;
-    } else if (hour >= 19 && hour <= 23) {
-      baseCurrent = 9.0;
-    } else {
-      baseCurrent = 3.5;
-    }
-    const noise = (Math.random() - 0.5) * 1.5;
-    const current = Math.max(0.5, Math.round((baseCurrent + noise) * 10) / 10);
-    const voltage = Math.round((229.0 + (Math.random() - 0.5) * 4) * 10) / 10;
-    const pf = 0.96 + (Math.random() - 0.5) * 0.04;
-    const activePower = Math.round(voltage * current * pf * 10) / 10;
-    const apparent = voltage * current;
-    const reactivePower = Math.round(Math.sqrt(Math.max(0, apparent * apparent - activePower * activePower)) * 10) / 10;
-    cumulativeEnergy += (activePower * 0.5) / 1000.0;
-
-    logs.push({
-      id: `TL-HIST-${i}`,
-      meterId: demoMeterId,
-      ownerUid: 'demo_user',
-      voltage,
-      current,
-      activePower,
-      reactivePower,
-      powerFactor: Math.round(pf * 100) / 100,
-      frequency: 50.01,
-      energy: Math.round(cumulativeEnergy * 1000) / 1000,
-      relayState: 'ON' as const,
-      hasAnomaly: false,
-      timestamp: time,
-    });
-  }
-
-  telemetryStore.set(demoMeterId, logs);
+  return;
 }
 
 // Read body helper with fallback
@@ -175,6 +100,11 @@ export function apiMiddlewarePlugin(): Plugin {
             const parsedUrl = new URL(rawUrl, `http://${host}`);
             const action = parsedUrl.searchParams.get('action') || body.action;
 
+            if (action === 'reset_all') {
+              resetAllMeters();
+              return sendJson(res, 200, { success: true, reset: true });
+            }
+
             if (action === 'delete_meter') {
               const targetId = (body.meterId || parsedUrl.searchParams.get('meterId') || '').trim();
               if (targetId) {
@@ -192,16 +122,13 @@ export function apiMiddlewarePlugin(): Plugin {
             if (action === 'register_meter') {
               const meterId = (body.meterId?.trim()) || getNextMeterId();
               deletedMeterIds.delete(meterId);
+              telemetryStore.delete(meterId);
+              anomalyStore.delete(meterId);
               const now = new Date().toISOString();
               const assignedApiKey = (body.apiKey && typeof body.apiKey === 'string' && body.apiKey.trim())
                 ? body.apiKey.trim()
                 : generateApiKey();
-              const existing = activeMeters.get(meterId);
-              const newMeter: Meter = existing ? {
-                ...existing,
-                apiKey: assignedApiKey,
-                updatedAt: now,
-              } : {
+              const newMeter: Meter = {
                 id: meterId,
                 meterId,
                 ownerUid: body.ownerUid || 'demo_user',
@@ -397,12 +324,20 @@ export function apiMiddlewarePlugin(): Plugin {
             });
           }
 
+          // 8d. Reset all meters (POST /api/meters/reset)
+          if (cleanPath === '/api/meters/reset' && req.method === 'POST') {
+            resetAllMeters();
+            return sendJson(res, 200, { success: true, reset: true });
+          }
+
           // 9. Register or Link New Meter (POST /api/meters)
           if (cleanPath === '/api/meters' && req.method === 'POST') {
             const body = await readJsonBody(req);
             // Auto-generate meterId if not provided (MTR-XXXX format based on total meters)
             const meterId = (body.meterId?.trim()) || getNextMeterId();
             deletedMeterIds.delete(meterId);
+            telemetryStore.delete(meterId);
+            anomalyStore.delete(meterId);
             const now = new Date().toISOString();
             incrementMetersCreated();
 

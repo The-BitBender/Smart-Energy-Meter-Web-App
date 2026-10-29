@@ -39,8 +39,10 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
   const [copiedSnippet, setCopiedSnippet] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const wasOpenRef = React.useRef(false);
+
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasOpenRef.current) {
       setStep('form');
       setCreatedMeter(null);
       setName(`Substation Feeder Panel ${existingMetersCount + 1}`);
@@ -49,6 +51,7 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
       setLongitude('3.3792');
       setError(null);
     }
+    wasOpenRef.current = isOpen;
   }, [isOpen, existingMetersCount]);
 
   if (!isOpen) return null;

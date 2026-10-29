@@ -52,8 +52,10 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [gpsDetecting, setGpsDetecting] = useState(false);
 
+  const wasOpenRef = React.useRef(false);
+
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasOpenRef.current) {
       setStep('configure');
       setCreatedMeter(null);
       setName(`Main Feeder Board ${existingMetersCount + 1}`);
@@ -62,6 +64,7 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
       setLongitude('3.3792');
       setError(null);
     }
+    wasOpenRef.current = isOpen;
   }, [isOpen, existingMetersCount]);
 
   if (!isOpen) return null;

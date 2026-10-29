@@ -64,26 +64,13 @@ const DELETED_CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd(
 
 function saveMetersToDisk() {
   try {
-    const list = Array.from(activeMeters.values()).filter(m => !deletedMeterIds.has(m.meterId));
+    const list = Array.from(activeMeters.values());
     fs.writeFileSync(CACHE_FILE, JSON.stringify(list, null, 2), 'utf-8');
-    fs.writeFileSync(DELETED_CACHE_FILE, JSON.stringify(Array.from(deletedMeterIds), null, 2), 'utf-8');
   } catch {}
 }
 
 function loadMetersFromDisk() {
   try {
-    if (fs.existsSync(DELETED_CACHE_FILE)) {
-      const rawDel = fs.readFileSync(DELETED_CACHE_FILE, 'utf-8');
-      const delList = JSON.parse(rawDel);
-      if (Array.isArray(delList)) {
-        delList.forEach((id: string) => {
-          if (id) {
-            deletedMeterIds.add(id);
-            activeMeters.delete(id);
-          }
-        });
-      }
-    }
     if (fs.existsSync(CACHE_FILE)) {
       const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
       const list = JSON.parse(raw);
@@ -95,6 +82,17 @@ function loadMetersFromDisk() {
         });
       }
     }
+  } catch {}
+}
+
+function resetAllMeters() {
+  activeMeters.clear();
+  telemetryStore.clear();
+  anomalyStore.clear();
+  deletedMeterIds.clear();
+  try {
+    if (fs.existsSync(CACHE_FILE)) fs.unlinkSync(CACHE_FILE);
+    if (fs.existsSync(DELETED_CACHE_FILE)) fs.unlinkSync(DELETED_CACHE_FILE);
   } catch {}
 }
 
@@ -132,51 +130,6 @@ export function getNextMeterId(): string {
 
 function seedDemoData() {
   loadMetersFromDisk();
-  if (activeMeters.size > 0) return;
-  const now = Date.now();
-  const demoMeterId = 'ESP32-MTR-8842';
-  if (deletedMeterIds.has(demoMeterId)) return;
-
-  const demoMeter: MeterData = {
-    id: demoMeterId,
-    meterId: demoMeterId,
-    ownerUid: 'demo_user',
-    name: 'Main Feeder Panel - Workshop A',
-    relayState: 'ON',
-    status: 'ONLINE',
-    apiKey: 'VP-8842-SECURE-KEY',
-    lastHeartbeat: new Date(now).toISOString(),
-    latitude: 6.5244,
-    longitude: 3.3792,
-    address: 'Plot 12 Commercial Way, Industrial Estate, Lagos',
-    voltage: 231.8,
-    current: 14.6,
-    activePower: 3315.0,
-    reactivePower: 410.0,
-    powerFactor: 0.98,
-    frequency: 50.02,
-    totalEnergy: 148.62,
-    hasAnomaly: false,
-    anomalyType: 'NONE',
-    anomalySeverity: 'LOW',
-    anomalyDescription: 'Operating normally',
-    createdAt: new Date(now - 86400000 * 7).toISOString(),
-    updatedAt: new Date(now).toISOString(),
-  };
-
-  activeMeters.set(demoMeterId, demoMeter);
-
-  userPreferencesStore.set('demo_user', {
-    userId: 'demo_user',
-    emailAlertsEnabled: true,
-    alertEmail: 'yinkusben4sure@gmail.com',
-    notifyCriticalTheft: true,
-    notifyOvercurrentSurge: true,
-    notifyVoltageSag: true,
-    notifyOfflineHeartbeat: false,
-    minimumSeverity: 'HIGH',
-    updatedAt: new Date(now).toISOString(),
-  });
 }
 
 seedDemoData();
@@ -551,11 +504,19 @@ app.get(['/api/meters/next-id', '/meters/next-id'], (req, res) => {
   });
 });
 
+app.post(['/api/meters/reset', '/meters/reset'], (req, res) => {
+  resetAllMeters();
+  res.json({ success: true, reset: true });
+});
+
 app.post(['/api/meters', '/meters'], (req, res) => {
   try {
     seedDemoData();
     const body = req.body || {};
     const meterId = (body.meterId?.trim()) || getNextMeterId();
+    deletedMeterIds.delete(meterId);
+    telemetryStore.delete(meterId);
+    anomalyStore.delete(meterId);
     const now = new Date().toISOString();
 
     // Always auto-generate 16-character secure API key if not provided
@@ -603,19 +564,21 @@ app.post(['/api/meters/sync', '/meters/sync'], (req, res) => {
   try {
     seedDemoData();
     const body = req.body || {};
+    const metersToSync = Array.isArray(body.meters) ? body.meters : (body.meter ? [body.meter] : []);
+    const incomingIds = new Set(metersToSync.map((m: any) => m?.meterId).filter(Boolean));
     if (Array.isArray(body.deletedIds)) {
       for (const delId of body.deletedIds) {
-        if (delId && typeof delId === 'string') {
+        if (delId && typeof delId === 'string' && !incomingIds.has(delId)) {
           deletedMeterIds.add(delId);
           activeMeters.delete(delId);
+          telemetryStore.delete(delId);
+          anomalyStore.delete(delId);
         }
       }
     }
-    const metersToSync = Array.isArray(body.meters) ? body.meters : (body.meter ? [body.meter] : []);
-    const incomingIds = new Set<string>();
     for (const m of metersToSync) {
-      if (m && m.meterId && !deletedMeterIds.has(m.meterId)) {
-        incomingIds.add(m.meterId);
+      if (m && m.meterId) {
+        deletedMeterIds.delete(m.meterId);
         const existing = activeMeters.get(m.meterId);
         if (!existing) {
           activeMeters.set(m.meterId, {
@@ -629,13 +592,6 @@ app.post(['/api/meters/sync', '/meters/sync'], (req, res) => {
             ...m,
             apiKey: m.apiKey || existing.apiKey,
           });
-        }
-      }
-    }
-    if (body.replaceAll && Array.isArray(body.meters)) {
-      for (const existingId of Array.from(activeMeters.keys())) {
-        if (!incomingIds.has(existingId)) {
-          activeMeters.delete(existingId);
         }
       }
     }

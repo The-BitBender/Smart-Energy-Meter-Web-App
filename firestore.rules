@@ -56,22 +56,25 @@ service cloud.firestore {
 
       // Telemetry logs subcollection
       match /telemetry/{telemetryId} {
-        allow get: if isValidId(meterId) && isValidId(telemetryId) && isMeterOwner(meterId);
-        allow list: if isValidId(meterId) && isMeterOwner(meterId);
+        allow get, list: if isValidId(meterId) && isSignedIn() &&
+          (resource == null || resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user' || isMeterOwner(meterId));
         allow create: if isValidId(meterId) && isValidId(telemetryId) &&
           isSignedIn() && (request.resource.data.ownerUid == request.auth.uid || isMeterOwner(meterId));
-        allow update, delete: if isValidId(meterId) && isValidId(telemetryId) && isMeterOwner(meterId);
+        allow update, delete: if isValidId(meterId) && isValidId(telemetryId) && isSignedIn() &&
+          (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user' || isMeterOwner(meterId));
       }
 
       // Anomalies subcollection
       match /anomalies/{anomalyId} {
-        allow get: if isValidId(meterId) && isValidId(anomalyId) && isMeterOwner(meterId);
-        allow list: if isValidId(meterId) && isMeterOwner(meterId);
+        allow get, list: if isValidId(meterId) && isSignedIn() &&
+          (resource == null || resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user' || isMeterOwner(meterId));
         allow create: if isValidId(meterId) && isValidId(anomalyId) &&
           isSignedIn() && (request.resource.data.ownerUid == request.auth.uid || isMeterOwner(meterId));
-        allow update: if isValidId(meterId) && isValidId(anomalyId) && isMeterOwner(meterId) &&
+        allow update: if isValidId(meterId) && isValidId(anomalyId) && isSignedIn() &&
+          (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user' || isMeterOwner(meterId)) &&
           request.resource.data.status in ['ACTIVE', 'RESOLVED', 'ACKNOWLEDGED'];
-        allow delete: if isValidId(meterId) && isValidId(anomalyId) && isMeterOwner(meterId);
+        allow delete: if isValidId(meterId) && isValidId(anomalyId) && isSignedIn() &&
+          (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user' || isMeterOwner(meterId));
       }
     }
   }

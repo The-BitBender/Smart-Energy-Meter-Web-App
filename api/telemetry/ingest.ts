@@ -195,26 +195,13 @@ const DELETED_CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd(
 
 function saveMetersToDisk() {
   try {
-    const list = Array.from(globalMeters.values()).filter((m: any) => !deletedMeterIds.has(m.meterId));
+    const list = Array.from(globalMeters.values());
     fs.writeFileSync(CACHE_FILE, JSON.stringify(list, null, 2), 'utf-8');
-    fs.writeFileSync(DELETED_CACHE_FILE, JSON.stringify(Array.from(deletedMeterIds), null, 2), 'utf-8');
   } catch {}
 }
 
 function loadMetersFromDisk() {
   try {
-    if (fs.existsSync(DELETED_CACHE_FILE)) {
-      const rawDel = fs.readFileSync(DELETED_CACHE_FILE, 'utf-8');
-      const delList = JSON.parse(rawDel);
-      if (Array.isArray(delList)) {
-        delList.forEach((id: string) => {
-          if (id) {
-            deletedMeterIds.add(id);
-            globalMeters.delete(id);
-          }
-        });
-      }
-    }
     if (fs.existsSync(CACHE_FILE)) {
       const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
       const list = JSON.parse(raw);
@@ -226,6 +213,17 @@ function loadMetersFromDisk() {
         });
       }
     }
+  } catch {}
+}
+
+function resetAllMeters() {
+  globalMeters.clear();
+  globalLogs.clear();
+  globalAnomalies.clear();
+  deletedMeterIds.clear();
+  try {
+    if (fs.existsSync(CACHE_FILE)) fs.unlinkSync(CACHE_FILE);
+    if (fs.existsSync(DELETED_CACHE_FILE)) fs.unlinkSync(DELETED_CACHE_FILE);
   } catch {}
 }
 
@@ -303,36 +301,6 @@ function sendResponse(res: any, statusCode: number, data: any) {
 
 function seedInitialDemoMeter() {
   loadMetersFromDisk();
-  if (globalMeters.size > 0) return;
-  const now = new Date().toISOString();
-  const demoMeterId = 'ESP32-MTR-8842';
-  if (deletedMeterIds.has(demoMeterId)) return;
-  globalMeters.set(demoMeterId, {
-    id: demoMeterId,
-    meterId: demoMeterId,
-    ownerUid: 'demo_user',
-    name: 'Main Feeder Panel - Workshop A',
-    relayState: 'ON',
-    status: 'ONLINE',
-    apiKey: 'VP-8842-SECURE-KEY',
-    lastHeartbeat: now,
-    latitude: 6.5244,
-    longitude: 3.3792,
-    address: 'Plot 12 Commercial Way, Industrial Estate, Lagos',
-    voltage: 231.8,
-    current: 14.6,
-    activePower: 3315.0,
-    reactivePower: 410.0,
-    powerFactor: 0.98,
-    frequency: 50.02,
-    totalEnergy: 148.62,
-    hasAnomaly: false,
-    anomalyType: 'NONE',
-    anomalySeverity: 'LOW',
-    anomalyDescription: 'Operating normally',
-    createdAt: now,
-    updatedAt: now,
-  });
 }
 
 // Default export: standard Vercel serverless function entrypoint
@@ -437,6 +405,12 @@ export default async function handler(req: any, res: any) {
     const now = new Date().toISOString();
     const pathname = parsedUrl.pathname;
 
+    // 0a. Check if this is a reset_all request
+    if (payload.action === 'reset_all' || action === 'reset_all' || pathname.endsWith('/reset')) {
+      resetAllMeters();
+      return sendResponse(res, 200, { success: true, reset: true });
+    }
+
     // 0. Check if this is a delete_meter request via POST JSON body
     if (payload.action === 'delete_meter') {
       const targetId = (payload.meterId || queryMeterId || '').trim();
@@ -459,25 +433,21 @@ export default async function handler(req: any, res: any) {
     // 1. Check if this is a bulk meter sync from Firestore / UI
     if (payload.action === 'sync_meters' || pathname.endsWith('/sync')) {
       loadMetersFromDisk();
+      const metersToSync = Array.isArray(payload.meters) ? payload.meters : (payload.meter ? [payload.meter] : []);
+      const incomingIds = new Set(metersToSync.map((m: any) => m?.meterId).filter(Boolean));
       if (Array.isArray(payload.deletedIds)) {
         for (const delId of payload.deletedIds) {
-          if (delId) {
+          if (delId && !incomingIds.has(delId)) {
             deletedMeterIds.add(delId);
             globalMeters.delete(delId);
-          }
-        }
-      }
-      const metersToSync = Array.isArray(payload.meters) ? payload.meters : (payload.meter ? [payload.meter] : []);
-      if (payload.replaceAll) {
-        const incomingIds = new Set(metersToSync.map((m: any) => m?.meterId).filter(Boolean));
-        for (const existingId of Array.from(globalMeters.keys())) {
-          if (!incomingIds.has(existingId)) {
-            globalMeters.delete(existingId);
+            globalLogs.delete(delId);
+            globalAnomalies.delete(delId);
           }
         }
       }
       for (const m of metersToSync) {
-        if (m && m.meterId && !deletedMeterIds.has(m.meterId)) {
+        if (m && m.meterId) {
+          deletedMeterIds.delete(m.meterId);
           const current = globalMeters.get(m.meterId);
           if (!current) {
             globalMeters.set(m.meterId, m);
@@ -494,6 +464,8 @@ export default async function handler(req: any, res: any) {
     if (payload.action === 'register_meter' || pathname.endsWith('/meters')) {
       const meterId = payload.meterId?.trim() || getNextMeterId();
       deletedMeterIds.delete(meterId);
+      globalLogs.delete(meterId);
+      globalAnomalies.delete(meterId);
       const assignedApiKey = (payload.apiKey && typeof payload.apiKey === 'string' && payload.apiKey.trim())
         ? payload.apiKey.trim()
         : generateKey();

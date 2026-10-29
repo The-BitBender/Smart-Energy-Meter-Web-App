@@ -55,37 +55,50 @@ export default function App() {
   const [isLinkLoading, setIsLinkLoading] = useState(false);
   const [nowTime, setNowTime] = useState(Date.now());
 
-  // Persistent tracking of deleted meter IDs so background polls or snapshots never resurrect them
-  const deletedMeterIdsRef = React.useRef<Set<string>>(
-    new Set(
-      (() => {
-        try {
-          const saved = JSON.parse(localStorage.getItem('vp_deleted_meters') || '[]');
-          return Array.isArray(saved) ? saved : [];
-        } catch {
-          return [];
-        }
-      })()
-    )
-  );
+  // In-memory tracking of actively deleted meter IDs (never persisted as a permanent blacklist across creations)
+  const deletedMeterIdsRef = React.useRef<Set<string>>(new Set());
 
   const markMeterDeleted = useCallback((meterId: string) => {
     deletedMeterIdsRef.current.add(meterId);
-    try {
-      const saved = JSON.parse(localStorage.getItem('vp_deleted_meters') || '[]');
-      const list = Array.isArray(saved) ? saved : [];
-      if (!list.includes(meterId)) {
-        localStorage.setItem('vp_deleted_meters', JSON.stringify([...list, meterId]));
-      }
-    } catch {}
   }, []);
 
   const unmarkMeterDeleted = useCallback((meterId: string) => {
     deletedMeterIdsRef.current.delete(meterId);
     try {
-      const saved = JSON.parse(localStorage.getItem('vp_deleted_meters') || '[]');
-      if (Array.isArray(saved)) {
-        localStorage.setItem('vp_deleted_meters', JSON.stringify(saved.filter((id: string) => id !== meterId)));
+      localStorage.removeItem('vp_deleted_meters');
+    } catch {}
+  }, []);
+
+  // Cascade delete a meter document and all its telemetry & anomalies subcollections from Firestore
+  const purgeMeterFromFirestore = useCallback(async (meterId: string, extraDocId?: string) => {
+    const idsToPurge = Array.from(new Set([meterId, extraDocId].filter(Boolean) as string[]));
+    for (const id of idsToPurge) {
+      try {
+        const [telSnap, anomSnap] = await Promise.all([
+          getDocs(collection(db, 'meters', id, 'telemetry')).catch(() => null),
+          getDocs(collection(db, 'meters', id, 'anomalies')).catch(() => null),
+        ]);
+        const subDeletes: Promise<any>[] = [];
+        if (telSnap) {
+          telSnap.forEach((d) => subDeletes.push(deleteDoc(d.ref).catch(() => {})));
+        }
+        if (anomSnap) {
+          anomSnap.forEach((d) => subDeletes.push(deleteDoc(d.ref).catch(() => {})));
+        }
+        if (subDeletes.length > 0) {
+          await Promise.allSettled(subDeletes);
+        }
+      } catch {}
+      await deleteDoc(doc(db, 'meters', id)).catch(() => {});
+    }
+    try {
+      const qSnap = await getDocs(query(collection(db, 'meters'), where('meterId', '==', meterId)));
+      const qDeletes: Promise<any>[] = [];
+      qSnap.forEach((d) => {
+        qDeletes.push(deleteDoc(d.ref).catch(() => {}));
+      });
+      if (qDeletes.length > 0) {
+        await Promise.allSettled(qDeletes);
       }
     } catch {}
   }, []);
@@ -210,75 +223,138 @@ export default function App() {
     return () => clearInterval(meterDiscoveryTimer);
   }, [user, fetchBackendMeters]);
 
-  // 3. Firestore Live Sync for Meters
+  // 3. Firestore Live Sync for Meters (with one-time clean database reset)
   useEffect(() => {
     if (!user) return;
 
-    // Attach real-time Firestore listener for user's meters
-    const metersQuery = query(
-      collection(db, 'meters'),
-      where('ownerUid', '==', user.uid)
-    );
+    let unsubscribe: (() => void) | undefined;
+    let isCancelled = false;
 
-    const unsubscribe = onSnapshot(
-      metersQuery,
-      (snapshot) => {
-        snapshot.docChanges().forEach((change) => {
-          if (change.type === 'removed') {
-            const removedId = change.doc.id || (change.doc.data() as Meter)?.meterId;
-            if (removedId) {
-              deletedMeterIdsRef.current.add(removedId);
-            }
+    const initFirestoreSync = async () => {
+      // Always clear legacy localStorage deleted-meter blacklist that previously blocked re-created IDs
+      try {
+        localStorage.removeItem('vp_deleted_meters');
+      } catch {}
+
+      // One-time database cleanup for a completely fresh start
+      try {
+        if (localStorage.getItem('vp_db_fresh_start_v2') !== 'done') {
+          localStorage.setItem('vp_db_fresh_start_v2', 'done');
+          deletedMeterIdsRef.current.clear();
+
+          await Promise.allSettled([
+            fetch('/api/meters/reset', { method: 'POST' }),
+            fetch('/api/telemetry/ingest', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'reset_all' }),
+            }),
+          ]);
+
+          const existingSnap = await getDocs(
+            query(collection(db, 'meters'), where('ownerUid', '==', user.uid))
+          ).catch(() => null);
+
+          const allIdsToPurge = new Set<string>([
+            'ESP32-MTR-8842',
+            'MTR-0001',
+            'MTR-0002',
+            'MTR-0003',
+            'MTR-0004',
+            'MTR-0005',
+            'MTR-0006',
+            'MTR-0007',
+            'MTR-0008',
+            'MTR-0009',
+            'MTR-0010',
+          ]);
+          if (existingSnap) {
+            existingSnap.forEach((d) => {
+              allIdsToPurge.add(d.id);
+              const data = d.data() as Meter;
+              if (data?.meterId) allIdsToPurge.add(data.meterId);
+            });
           }
-        });
 
-        const loadedMeters: Meter[] = [];
-        snapshot.forEach((d) => {
-          const data = d.data() as Meter;
-          const m: Meter = { ...data, id: d.id, meterId: data.meterId || d.id };
-          if (!deletedMeterIdsRef.current.has(m.meterId) && !deletedMeterIdsRef.current.has(d.id)) {
-            loadedMeters.push(m);
+          await Promise.allSettled(
+            Array.from(allIdsToPurge).map((id) => purgeMeterFromFirestore(id))
+          );
+
+          if (!isCancelled) {
+            setMeters([]);
+            setActiveMeter(null);
+            setTelemetryLogs([]);
+            setAnomalies([]);
           }
-        });
-
-        const deletedIdsList = Array.from(deletedMeterIdsRef.current);
-
-        // Immediately sync user meters to backend with replaceAll: true so backend purges any removed meters
-        fetch('/api/meters/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ meters: loadedMeters, replaceAll: true, deletedIds: deletedIdsList }),
-        }).catch(() => {});
-        fetch('/api/telemetry/ingest', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'sync_meters', meters: loadedMeters, replaceAll: true, deletedIds: deletedIdsList }),
-        }).catch(() => {});
-
-        // Firestore is authoritative: only keep meters present in loadedMeters
-        setMeters((prevMeters) => {
-          const prevMap = new Map<string, Meter>();
-          prevMeters.forEach(m => prevMap.set(m.meterId, m));
-          return loadedMeters
-            .filter(m => !deletedMeterIdsRef.current.has(m.meterId))
-            .map(m => reconcileMeter(prevMap.get(m.meterId), m));
-        });
-
-        setActiveMeter((prev) => {
-          if (!prev || deletedMeterIdsRef.current.has(prev.meterId)) {
-            return loadedMeters[0] || null;
-          }
-          const found = loadedMeters.find((m) => m.meterId === prev.meterId);
-          return found ? reconcileMeter(prev, found) : (loadedMeters[0] || null);
-        });
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'meters');
+        }
+      } catch (cleanupErr) {
+        console.warn('Database cleanup notice:', cleanupErr);
       }
-    );
 
-    return () => unsubscribe();
-  }, [user]);
+      if (isCancelled) return;
+
+      // Attach real-time Firestore listener for user's meters
+      const metersQuery = query(
+        collection(db, 'meters'),
+        where('ownerUid', '==', user.uid)
+      );
+
+      unsubscribe = onSnapshot(
+        metersQuery,
+        (snapshot) => {
+          const loadedMeters: Meter[] = [];
+          snapshot.forEach((d) => {
+            const data = d.data() as Meter;
+            const m: Meter = { ...data, id: d.id, meterId: data.meterId || d.id };
+            if (!deletedMeterIdsRef.current.has(m.meterId) && !deletedMeterIdsRef.current.has(d.id)) {
+              loadedMeters.push(m);
+            }
+          });
+
+          const deletedIdsList = Array.from(deletedMeterIdsRef.current);
+
+          // Sync user meters to backend
+          fetch('/api/meters/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ meters: loadedMeters, deletedIds: deletedIdsList }),
+          }).catch(() => {});
+          fetch('/api/telemetry/ingest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'sync_meters', meters: loadedMeters, deletedIds: deletedIdsList }),
+          }).catch(() => {});
+
+          // Firestore is authoritative: only keep meters present in loadedMeters
+          setMeters((prevMeters) => {
+            const prevMap = new Map<string, Meter>();
+            prevMeters.forEach(m => prevMap.set(m.meterId, m));
+            return loadedMeters
+              .filter(m => !deletedMeterIdsRef.current.has(m.meterId))
+              .map(m => reconcileMeter(prevMap.get(m.meterId), m));
+          });
+
+          setActiveMeter((prev) => {
+            if (!prev || deletedMeterIdsRef.current.has(prev.meterId)) {
+              return loadedMeters[0] || null;
+            }
+            const found = loadedMeters.find((m) => m.meterId === prev.meterId);
+            return found ? reconcileMeter(prev, found) : (loadedMeters[0] || null);
+          });
+        },
+        (error) => {
+          handleFirestoreError(error, OperationType.LIST, 'meters');
+        }
+      );
+    };
+
+    initFirestoreSync();
+
+    return () => {
+      isCancelled = true;
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user, purgeMeterFromFirestore]);
 
   // 4. Fetch/Listen for Active Meter Live Telemetry, Gauges & Anomalies
   useEffect(() => {
@@ -400,7 +476,7 @@ export default function App() {
         unsubscribeTel = onSnapshot(telQuery, (snapshot) => {
           const items: TelemetryLog[] = [];
           snapshot.forEach(d => items.push({ ...(d.data() as TelemetryLog), id: d.id }));
-          if (items.length > 0) setTelemetryLogs(items);
+          setTelemetryLogs(items);
         }, (error) => {
           console.warn('Firestore subcollection stream:', error.message);
         });
@@ -413,7 +489,7 @@ export default function App() {
         unsubscribeAnom = onSnapshot(anomQuery, (snapshot) => {
           const items: AnomalyAlert[] = [];
           snapshot.forEach(d => items.push({ ...(d.data() as AnomalyAlert), id: d.id }));
-          if (items.length > 0) setAnomalies(prev => reconcileAnomalies(prev, items));
+          setAnomalies(prev => items.length > 0 ? reconcileAnomalies(prev, items) : []);
         }, (error) => {
           console.warn('Firestore anomalies stream:', error.message);
         });
@@ -498,9 +574,22 @@ export default function App() {
     const ownerUid = user ? user.uid : 'demo_user';
     const now = new Date().toISOString();
 
-    // Auto-generate meterId if not supplied (based on total meters count)
-    const assignedMeterId = meterData.meterId?.trim() || formatMeterId(meters.length + 1);
+    // Compute sequential Meter ID (MTR-XXXX) ensuring no collision with any currently active meter
+    let nextSeq = meters.length + 1;
+    meters.forEach((m) => {
+      const match = m.meterId?.match(/^MTR-(\d+)$/i);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num >= nextSeq) {
+          nextSeq = num + 1;
+        }
+      }
+    });
+    const assignedMeterId = meterData.meterId?.trim() || formatMeterId(nextSeq);
     const assignedApiKey = meterData.apiKey?.trim() || generate16CharApiKey();
+
+    // CRITICAL: Unmark deleted BEFORE any network or Firestore calls so onSnapshot never filters or deletes this meter!
+    unmarkMeterDeleted(assignedMeterId);
 
     const newMeter: Meter = {
       id: assignedMeterId,
@@ -530,9 +619,9 @@ export default function App() {
     };
 
     try {
-      // 1. Post to backend API with resilient text parsing
-      try {
-        const res = await fetch('/api/meters', {
+      // 1. Register on backend API and telemetry ingestion engine
+      await Promise.allSettled([
+        fetch('/api/meters', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -541,28 +630,8 @@ export default function App() {
             apiKey: assignedApiKey,
             ownerUid,
           }),
-        });
-
-        if (res.ok) {
-          const text = await res.text();
-          try {
-            const data = JSON.parse(text);
-            if (data?.meter) {
-              Object.assign(newMeter, data.meter);
-            }
-          } catch {
-            // Response was not JSON, status was ok
-          }
-        } else {
-          console.warn(`Backend /api/meters responded with status ${res.status}`);
-        }
-      } catch (apiErr) {
-        console.warn('Backend API meter sync skipped/offline:', apiErr);
-      }
-
-      // Also register directly with /api/telemetry/ingest for Vercel lambdas
-      try {
-        await fetch('/api/telemetry/ingest', {
+        }),
+        fetch('/api/telemetry/ingest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -575,14 +644,23 @@ export default function App() {
             address: newMeter.address,
             ownerUid,
           }),
-        });
-      } catch (ingestRegErr) {
-        console.warn('Ingest registration notice:', ingestRegErr);
-      }
+        }),
+      ]);
 
-      // 2. Save in Firestore if authenticated
+      // 2. If authenticated, purge any leftover telemetry/anomalies subcollection docs for this ID, then save meter to Firestore
       if (user) {
         try {
+          const [oldTel, oldAnom] = await Promise.all([
+            getDocs(collection(db, 'meters', newMeter.meterId, 'telemetry')).catch(() => null),
+            getDocs(collection(db, 'meters', newMeter.meterId, 'anomalies')).catch(() => null),
+          ]);
+          const cleanupPromises: Promise<any>[] = [];
+          if (oldTel) oldTel.forEach((d) => cleanupPromises.push(deleteDoc(d.ref).catch(() => {})));
+          if (oldAnom) oldAnom.forEach((d) => cleanupPromises.push(deleteDoc(d.ref).catch(() => {})));
+          if (cleanupPromises.length > 0) {
+            await Promise.allSettled(cleanupPromises);
+          }
+
           await setDoc(doc(db, 'meters', newMeter.meterId), {
             ...newMeter,
             ownerUid: user.uid,
@@ -592,11 +670,28 @@ export default function App() {
         }
       }
 
-      // 3. Update state & switch to newly linked meter with cleared telemetry history
-      unmarkMeterDeleted(newMeter.meterId);
+      // 3. Re-confirm backend registration after Firestore snapshot settles
+      await Promise.allSettled([
+        fetch('/api/telemetry/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'register_meter',
+            meterId: assignedMeterId,
+            apiKey: assignedApiKey,
+            name: newMeter.name,
+            latitude: newMeter.latitude,
+            longitude: newMeter.longitude,
+            address: newMeter.address,
+            ownerUid,
+          }),
+        }),
+      ]);
+
+      // 4. Update state & switch to newly linked meter with cleared telemetry history
       setTelemetryLogs([]);
       setAnomalies([]);
-      setMeters(prev => [newMeter, ...prev.filter(m => m.meterId !== newMeter.meterId && !deletedMeterIdsRef.current.has(m.meterId))]);
+      setMeters(prev => [newMeter, ...prev.filter(m => m.meterId !== newMeter.meterId)]);
       setActiveMeter(newMeter);
       setActiveTab('dashboard');
 
@@ -683,12 +778,12 @@ export default function App() {
     }
   };
 
-  // Delete Meter Handler
+  // Delete Meter Handler (Cascade deletes meter document + all telemetry & anomaly logs in database & backend)
   const handleDeleteMeter = async (meterId: string) => {
     try {
       const targetMeter = meters.find(m => m.meterId === meterId || m.id === meterId);
 
-      // 1. Immediately mark meter as deleted so no in-flight poll or Firestore sync can resurrect it
+      // 1. Mark meter as deleted during deletion so no in-flight poll can resurrect it
       markMeterDeleted(meterId);
       if (targetMeter?.id && targetMeter.id !== meterId) {
         markMeterDeleted(targetMeter.id);
@@ -709,24 +804,12 @@ export default function App() {
         }
       }
 
-      // 3. Delete from Firestore if authenticated (both by doc ID and by meterId query)
+      // 3. Cascade delete from Firestore (telemetry subcollection + anomalies subcollection + meter doc)
       if (user) {
-        const firestoreDeletes: Promise<any>[] = [
-          deleteDoc(doc(db, 'meters', meterId)).catch(() => {}),
-        ];
-        if (targetMeter?.id && targetMeter.id !== meterId) {
-          firestoreDeletes.push(deleteDoc(doc(db, 'meters', targetMeter.id)).catch(() => {}));
-        }
-        try {
-          const qSnap = await getDocs(query(collection(db, 'meters'), where('meterId', '==', meterId)));
-          qSnap.forEach((d) => {
-            firestoreDeletes.push(deleteDoc(d.ref).catch(() => {}));
-          });
-        } catch {}
-        await Promise.allSettled(firestoreDeletes);
+        await purgeMeterFromFirestore(meterId, targetMeter?.id);
       }
 
-      // 4. Delete from backend memory / API & sync remaining list
+      // 4. Delete from backend memory / disk cache
       const deletedIdsList = Array.from(deletedMeterIdsRef.current);
       await Promise.allSettled([
         fetch(`/api/meters/${encodeURIComponent(meterId)}`, {
@@ -740,7 +823,7 @@ export default function App() {
         fetch('/api/meters/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ meters: remainingMeters, replaceAll: true, deletedIds: deletedIdsList }),
+          body: JSON.stringify({ meters: remainingMeters, deletedIds: deletedIdsList }),
         }),
       ]);
     } catch (err: any) {

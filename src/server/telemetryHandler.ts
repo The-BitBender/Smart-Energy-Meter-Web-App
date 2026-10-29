@@ -16,9 +16,8 @@ const DELETED_CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd(
 
 export function saveMetersToDisk(): void {
   try {
-    const list = Array.from(activeMeters.values()).filter(m => !deletedMeterIds.has(m.meterId));
+    const list = Array.from(activeMeters.values());
     fs.writeFileSync(CACHE_FILE, JSON.stringify(list, null, 2), 'utf-8');
-    fs.writeFileSync(DELETED_CACHE_FILE, JSON.stringify(Array.from(deletedMeterIds), null, 2), 'utf-8');
   } catch (err) {
     // Non-fatal disk sync error
   }
@@ -26,18 +25,6 @@ export function saveMetersToDisk(): void {
 
 export function loadMetersFromDisk(): void {
   try {
-    if (fs.existsSync(DELETED_CACHE_FILE)) {
-      const rawDel = fs.readFileSync(DELETED_CACHE_FILE, 'utf-8');
-      const delList = JSON.parse(rawDel);
-      if (Array.isArray(delList)) {
-        delList.forEach((id: string) => {
-          if (id) {
-            deletedMeterIds.add(id);
-            activeMeters.delete(id);
-          }
-        });
-      }
-    }
     if (fs.existsSync(CACHE_FILE)) {
       const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
       const list = JSON.parse(raw);
@@ -54,30 +41,41 @@ export function loadMetersFromDisk(): void {
   }
 }
 
+export function resetAllMeters(): void {
+  activeMeters.clear();
+  telemetryStore.clear();
+  anomalyStore.clear();
+  deletedMeterIds.clear();
+  totalMetersEverCreated = 0;
+  try {
+    if (fs.existsSync(CACHE_FILE)) fs.unlinkSync(CACHE_FILE);
+    if (fs.existsSync(DELETED_CACHE_FILE)) fs.unlinkSync(DELETED_CACHE_FILE);
+  } catch {}
+}
+
 // Initial hydration from disk
 loadMetersFromDisk();
 
-export function syncMeters(meters: Meter[], replaceAll = false, deletedIds?: string[]): void {
+export function syncMeters(meters: Meter[], _replaceAll = false, deletedIds?: string[]): void {
   if (!Array.isArray(meters)) return;
   loadMetersFromDisk();
+  const incomingIds = new Set(meters.map(m => m?.meterId).filter(Boolean));
+
   if (Array.isArray(deletedIds)) {
     for (const delId of deletedIds) {
-      if (delId) {
+      if (delId && !incomingIds.has(delId)) {
         deletedMeterIds.add(delId);
         activeMeters.delete(delId);
+        telemetryStore.delete(delId);
+        anomalyStore.delete(delId);
       }
     }
   }
-  if (replaceAll) {
-    const incomingIds = new Set(meters.map(m => m?.meterId).filter(Boolean));
-    for (const existingId of Array.from(activeMeters.keys())) {
-      if (!incomingIds.has(existingId)) {
-        activeMeters.delete(existingId);
-      }
-    }
-  }
+
   for (const m of meters) {
-    if (m && m.meterId && !deletedMeterIds.has(m.meterId)) {
+    if (m && m.meterId) {
+      // Any meter present in the active sync list is explicitly active (never deleted)
+      deletedMeterIds.delete(m.meterId);
       const existing = activeMeters.get(m.meterId);
       if (!existing) {
         activeMeters.set(m.meterId, {
@@ -476,6 +474,7 @@ export function processTelemetryIngest(payload: IngestPayload, headerApiKey?: st
   meter.anomalyDescription = anomalyResult.hasAnomaly ? anomalyResult.description : 'System normal';
 
   activeMeters.set(meterId, meter);
+  saveMetersToDisk();
 
   // Store Telemetry Log
   const logId = `TL-${Date.now()}-${Math.floor(Math.random() * 1000)}`;

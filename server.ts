@@ -18,7 +18,8 @@ import {
   saveMetersToDisk,
   loadMetersFromDisk,
   syncMeters,
-  deletedMeterIds
+  deletedMeterIds,
+  resetAllMeters
 } from './src/server/telemetryHandler';
 import type { NotificationPreferences, Meter } from './src/types/energy';
 
@@ -41,87 +42,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// Helper to seed initial demo data on server boot
+// Do not auto-seed demo meters so clean/deleted databases remain empty
 function ensureDemoMeters() {
-  if (activeMeters.size > 0) return;
-
-  const demoMeterId = 'ESP32-MTR-8842';
-  if (deletedMeterIds.has(demoMeterId)) return;
-  const now = Date.now();
-
-  const demoMeter = {
-    id: demoMeterId,
-    meterId: demoMeterId,
-    ownerUid: 'demo_user',
-    name: 'Main Feeder Panel - Workshop A',
-    relayState: 'ON' as const,
-    status: 'ONLINE' as const,
-    apiKey: 'VP-8842-SECURE-KEY',
-    lastHeartbeat: new Date(now).toISOString(),
-    latitude: 6.5244,
-    longitude: 3.3792,
-    address: 'Plot 12 Commercial Way, Industrial Estate, Lagos',
-    voltage: 231.8,
-    current: 14.6,
-    activePower: 3315.0,
-    reactivePower: 410.0,
-    powerFactor: 0.98,
-    frequency: 50.02,
-    totalEnergy: 148.62,
-    hasAnomaly: false,
-    anomalyType: 'NONE' as const,
-    anomalySeverity: 'LOW' as const,
-    anomalyDescription: 'Operating normally',
-    createdAt: new Date(now - 86400000 * 7).toISOString(),
-    updatedAt: new Date(now).toISOString(),
-  };
-
-  activeMeters.set(demoMeterId, demoMeter);
-
-  const logs = [];
-  let cumulativeEnergy = 132.0;
-
-  for (let i = 48; i >= 0; i--) {
-    const time = new Date(now - i * 30 * 60 * 1000).toISOString();
-    const hour = (new Date(time)).getHours();
-    let baseCurrent = 5.0;
-    if (hour >= 8 && hour <= 18) {
-      baseCurrent = 12.0 + Math.sin(hour / 3) * 6.0;
-    } else if (hour >= 19 && hour <= 23) {
-      baseCurrent = 9.0;
-    } else {
-      baseCurrent = 3.5;
-    }
-    const noise = (Math.random() - 0.5) * 1.5;
-    const current = Math.max(0.5, Math.round((baseCurrent + noise) * 10) / 10);
-    const voltage = Math.round((229.0 + (Math.random() - 0.5) * 4) * 10) / 10;
-    const pf = 0.96 + (Math.random() - 0.5) * 0.04;
-    const activePower = Math.round(voltage * current * pf * 10) / 10;
-    const apparent = voltage * current;
-    const reactivePower = Math.round(Math.sqrt(Math.max(0, apparent * apparent - activePower * activePower)) * 10) / 10;
-    cumulativeEnergy += (activePower * 0.5) / 1000.0;
-
-    logs.push({
-      id: `TL-HIST-${i}`,
-      meterId: demoMeterId,
-      ownerUid: 'demo_user',
-      voltage,
-      current,
-      activePower,
-      reactivePower,
-      powerFactor: Math.round(pf * 100) / 100,
-      frequency: 50.01,
-      energy: Math.round(cumulativeEnergy * 1000) / 1000,
-      relayState: 'ON' as const,
-      hasAnomaly: false,
-      timestamp: time,
-    });
-  }
-
-  telemetryStore.set(demoMeterId, logs);
+  return;
 }
-
-ensureDemoMeters();
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -139,6 +63,11 @@ app.post('/api/telemetry/ingest', (req, res) => {
     const payload = req.body || {};
     const action = (req.query.action as string) || payload.action;
 
+    if (action === 'reset_all') {
+      resetAllMeters();
+      return res.json({ success: true, reset: true });
+    }
+
     if (action === 'delete_meter') {
       const targetId = ((req.query.meterId as string) || payload.meterId || '').trim();
       if (targetId) {
@@ -151,6 +80,46 @@ app.post('/api/telemetry/ingest', (req, res) => {
       const metersToSync = Array.isArray(payload.meters) ? payload.meters : (payload.meter ? [payload.meter] : []);
       syncMeters(metersToSync, Boolean(payload.replaceAll), payload.deletedIds);
       return res.json({ success: true, count: activeMeters.size });
+    }
+
+    if (action === 'register_meter') {
+      const meterId = (payload.meterId?.trim()) || getNextMeterId();
+      deletedMeterIds.delete(meterId);
+      telemetryStore.delete(meterId);
+      anomalyStore.delete(meterId);
+      const now = new Date().toISOString();
+      const assignedApiKey = (payload.apiKey && typeof payload.apiKey === 'string' && payload.apiKey.trim())
+        ? payload.apiKey.trim()
+        : generateApiKey();
+      const newMeter: Meter = {
+        id: meterId,
+        meterId,
+        ownerUid: payload.ownerUid || 'demo_user',
+        name: payload.name?.trim() || `Smart Meter ${meterId}`,
+        relayState: 'ON',
+        status: 'OFFLINE',
+        apiKey: assignedApiKey,
+        lastHeartbeat: null as any,
+        latitude: Number(payload.latitude) || 6.5244,
+        longitude: Number(payload.longitude) || 3.3792,
+        address: payload.address || 'Smart Grid Connection Point',
+        voltage: 0.0,
+        current: 0.0,
+        activePower: 0.0,
+        reactivePower: 0.0,
+        powerFactor: 0.0,
+        frequency: 0.0,
+        totalEnergy: 0.0,
+        hasAnomaly: false,
+        anomalyType: 'NONE',
+        anomalySeverity: 'LOW',
+        anomalyDescription: 'Newly configured meter awaiting initial telemetry stream',
+        createdAt: now,
+        updatedAt: now,
+      };
+      activeMeters.set(meterId, newMeter);
+      saveMetersToDisk();
+      return res.status(201).json({ success: true, meter: newMeter });
     }
 
     const apiKey = (req.headers['x-api-key'] as string) || payload.apiKey;
@@ -279,12 +248,20 @@ app.get('/api/meters/next-id', (req, res) => {
   });
 });
 
+// Reset all meters and telemetry logs
+app.post('/api/meters/reset', (req, res) => {
+  resetAllMeters();
+  res.json({ success: true, reset: true });
+});
+
 // Register or link new meter (Auto-provision credentials flow)
 app.post('/api/meters', (req, res) => {
   try {
     const body = req.body || {};
     const meterId = (body.meterId?.trim()) || getNextMeterId();
     deletedMeterIds.delete(meterId);
+    telemetryStore.delete(meterId);
+    anomalyStore.delete(meterId);
     incrementMetersCreated();
 
     const assignedApiKey = (body.apiKey && typeof body.apiKey === 'string' && body.apiKey.trim())
