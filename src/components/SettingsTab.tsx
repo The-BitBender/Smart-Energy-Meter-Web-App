@@ -74,7 +74,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
   // Meter deletion modal state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [deleteConfirmationInput, setDeleteConfirmationInput] = useState('');
+  const [targetDeleteMeterId, setTargetDeleteMeterId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -105,7 +105,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       setMeterName(currentMeter.name);
       setMeterAddress(currentMeter.address);
       setShowKey(false);
-      setDeleteConfirmationInput('');
       setDeleteError(null);
     }
   }, [currentMeter?.meterId]);
@@ -178,16 +177,14 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
   // Handle Delete Meter
   const handleConfirmDelete = async () => {
-    if (!currentMeter) return;
-    if (deleteConfirmationInput.trim() !== currentMeter.meterId) {
-      setDeleteError(`Please type '${currentMeter.meterId}' exactly to confirm.`);
-      return;
-    }
+    const meterIdToDelete = targetDeleteMeterId || currentMeter?.meterId;
+    if (!meterIdToDelete) return;
     setIsDeleting(true);
     setDeleteError(null);
     try {
-      await onDeleteMeter(currentMeter.meterId);
+      await onDeleteMeter(meterIdToDelete);
       setIsDeleteModalOpen(false);
+      setTargetDeleteMeterId(null);
     } catch (err: any) {
       setDeleteError(err?.message || 'Failed to delete meter.');
     } finally {
@@ -736,13 +733,48 @@ res.close()`;
 
           <button
             type="button"
-            onClick={() => setIsDeleteModalOpen(true)}
-            className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs transition-all shadow-md active:scale-95 flex items-center justify-center space-x-2 shrink-0"
+            onClick={() => {
+              setTargetDeleteMeterId(currentMeter.meterId);
+              setDeleteError(null);
+              setIsDeleteModalOpen(true);
+            }}
+            className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs transition-all shadow-md active:scale-95 flex items-center justify-center space-x-2 shrink-0 cursor-pointer"
           >
             <Trash2 className="w-4 h-4" />
-            <span>Delete Meter</span>
+            <span>Delete {currentMeter.meterId}</span>
           </button>
         </div>
+
+        {meters.length > 1 && (
+          <div className="pt-4 border-t border-rose-500/20 space-y-2">
+            <span className="text-xs font-bold text-rose-200 block">All Registered Meters ({meters.length}):</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {meters.map((m) => (
+                <div
+                  key={m.meterId}
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-black/30 border border-rose-500/30"
+                >
+                  <div className="overflow-hidden mr-2">
+                    <div className="font-mono text-xs font-black text-white">{m.meterId}</div>
+                    <div className="text-[11px] text-rose-200/80 truncate">{m.name}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTargetDeleteMeterId(m.meterId);
+                      setDeleteError(null);
+                      setIsDeleteModalOpen(true);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-600 text-white text-xs font-bold flex items-center space-x-1.5 transition-colors shrink-0 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* MODAL 1: Rotate / Change API Key */}
@@ -837,54 +869,39 @@ res.close()`;
               </div>
               <div>
                 <h3 className="text-lg font-black text-white">Delete Energy Meter</h3>
-                <p className="text-xs text-rose-300 font-mono">{currentMeter.meterId}</p>
+                <p className="text-xs text-rose-300 font-mono">{targetDeleteMeterId || currentMeter.meterId}</p>
               </div>
             </div>
 
             <p className="text-xs text-teal-200 leading-relaxed">
-              This will permanently delete meter <strong className="text-white font-mono">{currentMeter.meterId}</strong> and all associated telemetry records. This action <strong>cannot be undone</strong>.
+              Are you sure you want to permanently delete meter <strong className="text-white font-mono">{targetDeleteMeterId || currentMeter.meterId}</strong> and all associated telemetry records? This action <strong>cannot be undone</strong>.
             </p>
 
-            <div className="space-y-2">
-              <label className="block text-xs font-semibold text-rose-200">
-                To confirm, type <span className="font-mono text-white font-bold select-all bg-rose-950/80 px-1 py-0.5 rounded">{currentMeter.meterId}</span> below:
-              </label>
-              <input
-                type="text"
-                value={deleteConfirmationInput}
-                onChange={(e) => {
-                  setDeleteConfirmationInput(e.target.value);
-                  setDeleteError(null);
-                }}
-                placeholder={currentMeter.meterId}
-                className="w-full bg-[#001d1a] text-white font-mono text-xs px-3.5 py-2.5 rounded-lg border border-rose-500/40 focus:outline-hidden focus:ring-2 focus:ring-rose-400"
-              />
-              {deleteError && (
-                <p className="text-xs text-rose-400 font-semibold">{deleteError}</p>
-              )}
-            </div>
+            {deleteError && (
+              <p className="text-xs text-rose-400 font-semibold">{deleteError}</p>
+            )}
 
             <div className="flex items-center justify-end space-x-3 pt-2">
               <button
                 type="button"
                 onClick={() => {
                   setIsDeleteModalOpen(false);
-                  setDeleteConfirmationInput('');
+                  setTargetDeleteMeterId(null);
                   setDeleteError(null);
                 }}
                 disabled={isDeleting}
-                className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-colors"
+                className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDelete}
-                disabled={isDeleting || deleteConfirmationInput.trim() !== currentMeter.meterId}
-                className="px-5 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-xs transition-all shadow-md active:scale-95 flex items-center space-x-2"
+                disabled={isDeleting}
+                className="px-5 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 disabled:opacity-40 text-white font-black text-xs transition-all shadow-md active:scale-95 flex items-center space-x-2 cursor-pointer"
               >
                 <Trash2 className="w-4 h-4" />
-                <span>{isDeleting ? 'Deleting...' : 'I understand, delete this meter'}</span>
+                <span>{isDeleting ? 'Deleting...' : 'Yes, Delete Meter'}</span>
               </button>
             </div>
           </div>

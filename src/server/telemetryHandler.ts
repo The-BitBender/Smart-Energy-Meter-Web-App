@@ -57,9 +57,25 @@ export function loadMetersFromDisk(): void {
 // Initial hydration from disk
 loadMetersFromDisk();
 
-export function syncMeters(meters: Meter[]): void {
+export function syncMeters(meters: Meter[], replaceAll = false, deletedIds?: string[]): void {
   if (!Array.isArray(meters)) return;
   loadMetersFromDisk();
+  if (Array.isArray(deletedIds)) {
+    for (const delId of deletedIds) {
+      if (delId) {
+        deletedMeterIds.add(delId);
+        activeMeters.delete(delId);
+      }
+    }
+  }
+  if (replaceAll) {
+    const incomingIds = new Set(meters.map(m => m?.meterId).filter(Boolean));
+    for (const existingId of Array.from(activeMeters.keys())) {
+      if (!incomingIds.has(existingId)) {
+        activeMeters.delete(existingId);
+      }
+    }
+  }
   for (const m of meters) {
     if (m && m.meterId && !deletedMeterIds.has(m.meterId)) {
       const existing = activeMeters.get(m.meterId);

@@ -603,9 +603,19 @@ app.post(['/api/meters/sync', '/meters/sync'], (req, res) => {
   try {
     seedDemoData();
     const body = req.body || {};
+    if (Array.isArray(body.deletedIds)) {
+      for (const delId of body.deletedIds) {
+        if (delId && typeof delId === 'string') {
+          deletedMeterIds.add(delId);
+          activeMeters.delete(delId);
+        }
+      }
+    }
     const metersToSync = Array.isArray(body.meters) ? body.meters : (body.meter ? [body.meter] : []);
+    const incomingIds = new Set<string>();
     for (const m of metersToSync) {
-      if (m && m.meterId) {
+      if (m && m.meterId && !deletedMeterIds.has(m.meterId)) {
+        incomingIds.add(m.meterId);
         const existing = activeMeters.get(m.meterId);
         if (!existing) {
           activeMeters.set(m.meterId, {
@@ -619,6 +629,13 @@ app.post(['/api/meters/sync', '/meters/sync'], (req, res) => {
             ...m,
             apiKey: m.apiKey || existing.apiKey,
           });
+        }
+      }
+    }
+    if (body.replaceAll && Array.isArray(body.meters)) {
+      for (const existingId of Array.from(activeMeters.keys())) {
+        if (!incomingIds.has(existingId)) {
+          activeMeters.delete(existingId);
         }
       }
     }

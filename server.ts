@@ -149,7 +149,7 @@ app.post('/api/telemetry/ingest', (req, res) => {
 
     if (action === 'sync_meters') {
       const metersToSync = Array.isArray(payload.meters) ? payload.meters : (payload.meter ? [payload.meter] : []);
-      syncMeters(metersToSync);
+      syncMeters(metersToSync, Boolean(payload.replaceAll), payload.deletedIds);
       return res.json({ success: true, count: activeMeters.size });
     }
 
@@ -333,7 +333,7 @@ app.post('/api/meters/sync', (req, res) => {
   try {
     const body = req.body || {};
     const metersToSync = Array.isArray(body.meters) ? body.meters : (body.meter ? [body.meter] : []);
-    syncMeters(metersToSync);
+    syncMeters(metersToSync, Boolean(body.replaceAll), body.deletedIds);
     res.json({ success: true, count: activeMeters.size, meters: Array.from(activeMeters.values()) });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

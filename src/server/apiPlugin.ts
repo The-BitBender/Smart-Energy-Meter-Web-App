@@ -185,7 +185,7 @@ export function apiMiddlewarePlugin(): Plugin {
 
             if (action === 'sync_meters') {
               const metersToSync = Array.isArray(body.meters) ? body.meters : (body.meter ? [body.meter] : []);
-              syncMeters(metersToSync);
+              syncMeters(metersToSync, Boolean(body.replaceAll), body.deletedIds);
               return sendJson(res, 200, { success: true, count: activeMeters.size });
             }
 
@@ -389,7 +389,7 @@ export function apiMiddlewarePlugin(): Plugin {
           if (cleanPath === '/api/meters/sync' && req.method === 'POST') {
             const body = await readJsonBody(req);
             const metersToSync = Array.isArray(body.meters) ? body.meters : (body.meter ? [body.meter] : []);
-            syncMeters(metersToSync);
+            syncMeters(metersToSync, Boolean(body.replaceAll), body.deletedIds);
             return sendJson(res, 200, {
               success: true,
               count: activeMeters.size,

@@ -9,6 +9,7 @@ import {
   updateDoc, 
   setDoc,
   deleteDoc,
+  getDocs,
   orderBy,
   limit
 } from 'firebase/firestore';
@@ -169,41 +170,29 @@ export default function App() {
       discoveredMeters = discoveredMeters.filter(m => m && m.meterId && !deletedMeterIdsRef.current.has(m.meterId));
 
       if (discoveredMeters.length > 0) {
-        setMeters((prevList) => {
-          const map = new Map<string, Meter>();
-          prevList.forEach((m) => {
-            if (!deletedMeterIdsRef.current.has(m.meterId)) {
-              map.set(m.meterId, m);
-            }
-          });
-          discoveredMeters.forEach((m) => {
-            if (!deletedMeterIdsRef.current.has(m.meterId)) {
-              const existing = map.get(m.meterId);
-              map.set(m.meterId, reconcileMeter(existing, m));
-            }
-          });
-          return Array.from(map.values());
+        const discoveredMap = new Map<string, Meter>();
+        discoveredMeters.forEach((m) => {
+          if (!deletedMeterIdsRef.current.has(m.meterId)) {
+            discoveredMap.set(m.meterId, m);
+          }
         });
 
-        // Smart active meter selection
-        setActiveMeter((prev) => {
-          if (prev && deletedMeterIdsRef.current.has(prev.meterId)) {
-            return discoveredMeters[0] || null;
-          }
-          if (!prev) return discoveredMeters[0];
-          
-          // If current meter is the demo meter and an actual hardware meter reported live in last 120s, auto-switch
-          const liveHardware = discoveredMeters.find(m => 
-            m.meterId !== 'ESP32-MTR-8842' && 
-            m.lastHeartbeat && 
-            (Date.now() - new Date(m.lastHeartbeat).getTime()) < 120000
-          );
-          if (prev.meterId === 'ESP32-MTR-8842' && liveHardware) {
-            return reconcileMeter(prev, liveHardware);
-          }
+        // Only update live metrics for meters that ALREADY exist in state; never inject or resurrect deleted meters
+        setMeters((prevList) =>
+          prevList
+            .filter((m) => !deletedMeterIdsRef.current.has(m.meterId))
+            .map((m) => {
+              const updated = discoveredMap.get(m.meterId);
+              return updated ? reconcileMeter(m, updated) : m;
+            })
+        );
 
-          // Otherwise keep current meter updated with latest metrics without reverting newer readings
-          const currentUpdated = discoveredMeters.find(m => m.meterId === prev.meterId);
+        setActiveMeter((prev) => {
+          if (!prev) return null;
+          if (deletedMeterIdsRef.current.has(prev.meterId)) {
+            return null;
+          }
+          const currentUpdated = discoveredMap.get(prev.meterId);
           return currentUpdated ? reconcileMeter(prev, currentUpdated) : prev;
         });
       }
@@ -245,52 +234,43 @@ export default function App() {
 
         const loadedMeters: Meter[] = [];
         snapshot.forEach((d) => {
-          const m = { ...(d.data() as Meter), id: d.id };
-          if (!deletedMeterIdsRef.current.has(m.meterId)) {
+          const data = d.data() as Meter;
+          const m: Meter = { ...data, id: d.id, meterId: data.meterId || d.id };
+          if (!deletedMeterIdsRef.current.has(m.meterId) && !deletedMeterIdsRef.current.has(d.id)) {
             loadedMeters.push(m);
           }
         });
 
-        if (loadedMeters.length > 0) {
-          // Immediately sync all user meters to backend in-memory and disk registries
-          fetch('/api/meters/sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ meters: loadedMeters }),
-          }).catch(() => {});
-          fetch('/api/telemetry/ingest', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'sync_meters', meters: loadedMeters }),
-          }).catch(() => {});
+        const deletedIdsList = Array.from(deletedMeterIdsRef.current);
 
-          setMeters((prevMeters) => {
-            const map = new Map<string, Meter>();
-            prevMeters.forEach(m => {
-              if (!deletedMeterIdsRef.current.has(m.meterId)) {
-                map.set(m.meterId, m);
-              }
-            });
-            loadedMeters.forEach(m => {
-              if (!deletedMeterIdsRef.current.has(m.meterId)) {
-                const existing = map.get(m.meterId);
-                map.set(m.meterId, reconcileMeter(existing, m));
-              }
-            });
-            return Array.from(map.values());
-          });
-          setActiveMeter((prev) => {
-            if (prev && deletedMeterIdsRef.current.has(prev.meterId)) {
-              return loadedMeters[0] || null;
-            }
-            if (!prev) return loadedMeters[0];
-            const found = loadedMeters.find((m) => m.meterId === prev.meterId);
-            return found ? reconcileMeter(prev, found) : prev;
-          });
-        } else {
-          // Filter out any deleted meters if loadedMeters is empty
-          setMeters((prevMeters) => prevMeters.filter(m => !deletedMeterIdsRef.current.has(m.meterId)));
-        }
+        // Immediately sync user meters to backend with replaceAll: true so backend purges any removed meters
+        fetch('/api/meters/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ meters: loadedMeters, replaceAll: true, deletedIds: deletedIdsList }),
+        }).catch(() => {});
+        fetch('/api/telemetry/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'sync_meters', meters: loadedMeters, replaceAll: true, deletedIds: deletedIdsList }),
+        }).catch(() => {});
+
+        // Firestore is authoritative: only keep meters present in loadedMeters
+        setMeters((prevMeters) => {
+          const prevMap = new Map<string, Meter>();
+          prevMeters.forEach(m => prevMap.set(m.meterId, m));
+          return loadedMeters
+            .filter(m => !deletedMeterIdsRef.current.has(m.meterId))
+            .map(m => reconcileMeter(prevMap.get(m.meterId), m));
+        });
+
+        setActiveMeter((prev) => {
+          if (!prev || deletedMeterIdsRef.current.has(prev.meterId)) {
+            return loadedMeters[0] || null;
+          }
+          const found = loadedMeters.find((m) => m.meterId === prev.meterId);
+          return found ? reconcileMeter(prev, found) : (loadedMeters[0] || null);
+        });
       },
       (error) => {
         handleFirestoreError(error, OperationType.LIST, 'meters');
@@ -362,17 +342,26 @@ export default function App() {
               .map((item) => (item.meterId === meterId ? reconcileMeter(item, latestMeterData) : item))
           );
 
-          // Authenticated Firestore real-time sync (skip if meter was deleted)
+          // Authenticated Firestore real-time sync (use updateDoc so deleted documents are NEVER re-created)
           if (user && !deletedMeterIdsRef.current.has(meterId)) {
             try {
-              await setDoc(
-                doc(db, 'meters', meterId),
-                {
-                  ...latestMeterData,
-                  ownerUid: user.uid,
-                },
-                { merge: true }
-              );
+              await updateDoc(doc(db, 'meters', meterId), {
+                voltage: latestMeterData.voltage,
+                current: latestMeterData.current,
+                activePower: latestMeterData.activePower,
+                reactivePower: latestMeterData.reactivePower,
+                powerFactor: latestMeterData.powerFactor,
+                frequency: latestMeterData.frequency,
+                totalEnergy: latestMeterData.totalEnergy,
+                relayState: latestMeterData.relayState,
+                status: latestMeterData.status,
+                lastHeartbeat: latestMeterData.lastHeartbeat,
+                hasAnomaly: latestMeterData.hasAnomaly,
+                anomalyType: latestMeterData.anomalyType,
+                anomalySeverity: latestMeterData.anomalySeverity,
+                anomalyDescription: latestMeterData.anomalyDescription,
+                updatedAt: latestMeterData.updatedAt || new Date().toISOString(),
+              });
 
               if (latestLogData) {
                 await setDoc(
@@ -385,7 +374,7 @@ export default function App() {
                 );
               }
             } catch (fsErr) {
-              console.warn('Firestore real-time sync notice:', fsErr);
+              // Ignore if document was deleted
             }
           }
         }
@@ -697,13 +686,20 @@ export default function App() {
   // Delete Meter Handler
   const handleDeleteMeter = async (meterId: string) => {
     try {
+      const targetMeter = meters.find(m => m.meterId === meterId || m.id === meterId);
+
       // 1. Immediately mark meter as deleted so no in-flight poll or Firestore sync can resurrect it
       markMeterDeleted(meterId);
+      if (targetMeter?.id && targetMeter.id !== meterId) {
+        markMeterDeleted(targetMeter.id);
+      }
 
       // 2. Immediately update local UI state
-      const remainingMeters = meters.filter(m => m.meterId !== meterId && !deletedMeterIdsRef.current.has(m.meterId));
+      const remainingMeters = meters.filter(
+        m => m.meterId !== meterId && m.id !== meterId && !deletedMeterIdsRef.current.has(m.meterId)
+      );
       setMeters(remainingMeters);
-      if (activeMeter?.meterId === meterId) {
+      if (activeMeter?.meterId === meterId || activeMeter?.id === meterId) {
         const nextMeter = remainingMeters.length > 0 ? remainingMeters[0] : null;
         setActiveMeter(nextMeter);
         setTelemetryLogs([]);
@@ -713,7 +709,25 @@ export default function App() {
         }
       }
 
-      // 3. Delete from backend memory / API & Vercel serverless ingest endpoint
+      // 3. Delete from Firestore if authenticated (both by doc ID and by meterId query)
+      if (user) {
+        const firestoreDeletes: Promise<any>[] = [
+          deleteDoc(doc(db, 'meters', meterId)).catch(() => {}),
+        ];
+        if (targetMeter?.id && targetMeter.id !== meterId) {
+          firestoreDeletes.push(deleteDoc(doc(db, 'meters', targetMeter.id)).catch(() => {}));
+        }
+        try {
+          const qSnap = await getDocs(query(collection(db, 'meters'), where('meterId', '==', meterId)));
+          qSnap.forEach((d) => {
+            firestoreDeletes.push(deleteDoc(d.ref).catch(() => {}));
+          });
+        } catch {}
+        await Promise.allSettled(firestoreDeletes);
+      }
+
+      // 4. Delete from backend memory / API & sync remaining list
+      const deletedIdsList = Array.from(deletedMeterIdsRef.current);
       await Promise.allSettled([
         fetch(`/api/meters/${encodeURIComponent(meterId)}`, {
           method: 'DELETE',
@@ -723,16 +737,12 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'delete_meter', meterId }),
         }),
+        fetch('/api/meters/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ meters: remainingMeters, replaceAll: true, deletedIds: deletedIdsList }),
+        }),
       ]);
-
-      // 4. Delete from Firestore if authenticated
-      if (user) {
-        try {
-          await deleteDoc(doc(db, 'meters', meterId));
-        } catch (fsErr) {
-          console.warn('Firestore delete meter notice:', fsErr);
-        }
-      }
     } catch (err: any) {
       console.error('Delete meter error:', err);
       throw new Error(err?.message || 'Failed to delete meter');
@@ -972,6 +982,7 @@ export default function App() {
         onSelectMeter={(meter) => setActiveMeter(meter)}
         onOpenLinkModal={() => setIsLinkModalOpen(true)}
         onOpenSettings={() => setActiveTab('settings')}
+        onDeleteMeter={handleDeleteMeter}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         isOnline={isOnline}

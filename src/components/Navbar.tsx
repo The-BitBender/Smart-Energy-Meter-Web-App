@@ -14,7 +14,8 @@ import {
   ChevronDown,
   Settings,
   Bell,
-  Power
+  Power,
+  Trash2
 } from 'lucide-react';
 import { Meter } from '../types/energy';
 import { formatLastSeen } from '../utils/statusHelper';
@@ -28,6 +29,7 @@ interface NavbarProps {
   onSelectMeter: (meter: Meter) => void;
   onOpenLinkModal: () => void;
   onOpenSettings: () => void;
+  onDeleteMeter?: (meterId: string) => Promise<void>;
   activeTab: 'dashboard' | 'analytics' | 'map' | 'anomalies' | 'workbench' | 'settings';
   setActiveTab: (tab: 'dashboard' | 'analytics' | 'map' | 'anomalies' | 'workbench' | 'settings') => void;
   isOnline: boolean;
@@ -44,6 +46,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectMeter,
   onOpenLinkModal,
   onOpenSettings,
+  onDeleteMeter,
   activeTab,
   setActiveTab,
   isOnline: _isOnlineProp,
@@ -119,44 +122,66 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                   <div className="py-1.5 max-h-60 overflow-y-auto space-y-1">
                     {meters.map((meter) => (
-                      <button
+                      <div
                         key={meter.meterId}
-                        onClick={() => {
-                          onSelectMeter(meter);
-                          setMeterDropdownOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                        className={`w-full px-3 py-2 rounded-xl text-xs flex items-center justify-between transition-colors ${
                           activeMeter?.meterId === meter.meterId
                             ? 'bg-white text-[#005149] font-bold shadow-xs'
                             : 'hover:bg-white/10 text-white'
                         }`}
                       >
-                        <div className="overflow-hidden mr-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectMeter(meter);
+                            setMeterDropdownOpen(false);
+                          }}
+                          className="flex-1 text-left overflow-hidden mr-2 cursor-pointer"
+                        >
                           <div className="font-mono font-bold flex items-center space-x-1.5">
                             <span>{meter.meterId}</span>
                             {meter.hasAnomaly && (
                               <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping"></span>
                             )}
                           </div>
-                          <div className={`text-[11px] truncate max-w-[170px] ${activeMeter?.meterId === meter.meterId ? 'text-teal-800' : 'text-teal-200/80'}`}>
+                          <div className={`text-[11px] truncate max-w-[150px] ${activeMeter?.meterId === meter.meterId ? 'text-teal-800' : 'text-teal-200/80'}`}>
                             {meter.name}
                           </div>
+                        </button>
+                        <div className="flex items-center space-x-1.5 shrink-0">
+                          {(() => {
+                            const mStatus = formatLastSeen(meter.lastHeartbeat, nowTime);
+                            return (
+                              <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold shrink-0 ${
+                                activeMeter?.meterId === meter.meterId
+                                  ? 'bg-[#005149] text-white'
+                                  : mStatus.isOnline
+                                    ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30'
+                                    : 'bg-rose-950 text-rose-300 border border-rose-500/30'
+                              }`}>
+                                {mStatus.isOnline ? 'ONLINE' : 'OFFLINE'}
+                              </span>
+                            );
+                          })()}
+                          {onDeleteMeter && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteMeter(meter.meterId);
+                              }}
+                              title={`Delete ${meter.meterId}`}
+                              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                activeMeter?.meterId === meter.meterId
+                                  ? 'text-rose-600 hover:bg-rose-100'
+                                  : 'text-rose-300 hover:bg-rose-500/20 hover:text-rose-200'
+                              }`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
-                        {(() => {
-                          const mStatus = formatLastSeen(meter.lastHeartbeat, nowTime);
-                          return (
-                            <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold shrink-0 ${
-                              activeMeter?.meterId === meter.meterId
-                                ? 'bg-[#005149] text-white'
-                                : mStatus.isOnline
-                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30'
-                                  : 'bg-rose-950 text-rose-300 border border-rose-500/30'
-                            }`}>
-                              {mStatus.isOnline ? 'ONLINE' : 'OFFLINE'}
-                            </span>
-                          );
-                        })()}
-                      </button>
+                      </div>
                     ))}
                   </div>
                   <div className="pt-2 mt-1">

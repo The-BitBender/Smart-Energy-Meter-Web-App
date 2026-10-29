@@ -459,7 +459,23 @@ export default async function handler(req: any, res: any) {
     // 1. Check if this is a bulk meter sync from Firestore / UI
     if (payload.action === 'sync_meters' || pathname.endsWith('/sync')) {
       loadMetersFromDisk();
+      if (Array.isArray(payload.deletedIds)) {
+        for (const delId of payload.deletedIds) {
+          if (delId) {
+            deletedMeterIds.add(delId);
+            globalMeters.delete(delId);
+          }
+        }
+      }
       const metersToSync = Array.isArray(payload.meters) ? payload.meters : (payload.meter ? [payload.meter] : []);
+      if (payload.replaceAll) {
+        const incomingIds = new Set(metersToSync.map((m: any) => m?.meterId).filter(Boolean));
+        for (const existingId of Array.from(globalMeters.keys())) {
+          if (!incomingIds.has(existingId)) {
+            globalMeters.delete(existingId);
+          }
+        }
+      }
       for (const m of metersToSync) {
         if (m && m.meterId && !deletedMeterIds.has(m.meterId)) {
           const current = globalMeters.get(m.meterId);
