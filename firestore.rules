@@ -41,18 +41,18 @@ service cloud.firestore {
 
     // Meters collection
     match /meters/{meterId} {
-      allow get: if isValidId(meterId) && isSignedIn() && resource.data.ownerUid == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow get: if isValidId(meterId) && isSignedIn() && (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user');
+      allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user');
       allow create: if isValidId(meterId) && isSignedIn() &&
         request.resource.data.ownerUid == request.auth.uid &&
         request.resource.data.name is string &&
         request.resource.data.name.size() <= 128 &&
         request.resource.data.relayState in ['ON', 'OFF'];
       allow update: if isValidId(meterId) && isSignedIn() &&
-        resource.data.ownerUid == request.auth.uid &&
-        request.resource.data.ownerUid == resource.data.ownerUid &&
+        (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user') &&
+        request.resource.data.ownerUid == request.auth.uid &&
         (!('relayState' in request.resource.data) || request.resource.data.relayState in ['ON', 'OFF']);
-      allow delete: if isValidId(meterId) && isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow delete: if isValidId(meterId) && isSignedIn() && (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user');
 
       // Telemetry logs subcollection
       match /telemetry/{telemetryId} {

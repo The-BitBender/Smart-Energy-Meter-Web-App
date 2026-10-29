@@ -188,24 +188,39 @@ export function analyzeTelemetryForAnomalies(sample: TelemetrySample): AnomalyDe
 const globalMeters = new Map<string, any>();
 const globalLogs = new Map<string, any[]>();
 const globalAnomalies = new Map<string, any[]>();
+const deletedMeterIds = new Set<string>();
 
 const CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_meters.json');
+const DELETED_CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_deleted_meters.json');
 
 function saveMetersToDisk() {
   try {
-    const list = Array.from(globalMeters.values());
+    const list = Array.from(globalMeters.values()).filter((m: any) => !deletedMeterIds.has(m.meterId));
     fs.writeFileSync(CACHE_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    fs.writeFileSync(DELETED_CACHE_FILE, JSON.stringify(Array.from(deletedMeterIds), null, 2), 'utf-8');
   } catch {}
 }
 
 function loadMetersFromDisk() {
   try {
+    if (fs.existsSync(DELETED_CACHE_FILE)) {
+      const rawDel = fs.readFileSync(DELETED_CACHE_FILE, 'utf-8');
+      const delList = JSON.parse(rawDel);
+      if (Array.isArray(delList)) {
+        delList.forEach((id: string) => {
+          if (id) {
+            deletedMeterIds.add(id);
+            globalMeters.delete(id);
+          }
+        });
+      }
+    }
     if (fs.existsSync(CACHE_FILE)) {
       const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
       const list = JSON.parse(raw);
       if (Array.isArray(list)) {
         list.forEach((m: any) => {
-          if (m && m.meterId && !globalMeters.has(m.meterId)) {
+          if (m && m.meterId && !globalMeters.has(m.meterId) && !deletedMeterIds.has(m.meterId)) {
             globalMeters.set(m.meterId, m);
           }
         });
@@ -287,9 +302,11 @@ function sendResponse(res: any, statusCode: number, data: any) {
 }
 
 function seedInitialDemoMeter() {
+  loadMetersFromDisk();
   if (globalMeters.size > 0) return;
   const now = new Date().toISOString();
   const demoMeterId = 'ESP32-MTR-8842';
+  if (deletedMeterIds.has(demoMeterId)) return;
   globalMeters.set(demoMeterId, {
     id: demoMeterId,
     meterId: demoMeterId,
@@ -340,16 +357,18 @@ export default async function handler(req: any, res: any) {
   // Handle DELETE request to delete a meter
   if (req.method === 'DELETE' || (req.method === 'POST' && action === 'delete_meter')) {
     const payload = req.method === 'POST' ? await parseRequestBody(req) : {};
-    const targetMeterId = queryMeterId || payload.meterId;
+    const pathMatch = parsedUrl.pathname.match(/\/meters\/([^\/]+)$/);
+    const pathMeterId = pathMatch ? decodeURIComponent(pathMatch[1]) : undefined;
+    const targetMeterId = (queryMeterId || pathMeterId || payload.meterId || '').trim();
     if (!targetMeterId) {
       return sendResponse(res, 400, { success: false, error: 'meterId is required for deletion' });
     }
-    if (!globalMeters.has(targetMeterId)) {
-      return sendResponse(res, 404, { success: false, error: `Meter '${targetMeterId}' not found` });
-    }
+    loadMetersFromDisk();
+    deletedMeterIds.add(targetMeterId);
     globalMeters.delete(targetMeterId);
     globalLogs.delete(targetMeterId);
     globalAnomalies.delete(targetMeterId);
+    saveMetersToDisk();
     return sendResponse(res, 200, {
       success: true,
       meterId: targetMeterId,
@@ -418,11 +437,31 @@ export default async function handler(req: any, res: any) {
     const now = new Date().toISOString();
     const pathname = parsedUrl.pathname;
 
+    // 0. Check if this is a delete_meter request via POST JSON body
+    if (payload.action === 'delete_meter') {
+      const targetId = (payload.meterId || queryMeterId || '').trim();
+      if (!targetId) {
+        return sendResponse(res, 400, { success: false, error: 'meterId is required for deletion' });
+      }
+      loadMetersFromDisk();
+      deletedMeterIds.add(targetId);
+      globalMeters.delete(targetId);
+      globalLogs.delete(targetId);
+      globalAnomalies.delete(targetId);
+      saveMetersToDisk();
+      return sendResponse(res, 200, {
+        success: true,
+        meterId: targetId,
+        message: `Meter '${targetId}' deleted successfully`,
+      });
+    }
+
     // 1. Check if this is a bulk meter sync from Firestore / UI
     if (payload.action === 'sync_meters' || pathname.endsWith('/sync')) {
+      loadMetersFromDisk();
       const metersToSync = Array.isArray(payload.meters) ? payload.meters : (payload.meter ? [payload.meter] : []);
       for (const m of metersToSync) {
-        if (m && m.meterId) {
+        if (m && m.meterId && !deletedMeterIds.has(m.meterId)) {
           const current = globalMeters.get(m.meterId);
           if (!current) {
             globalMeters.set(m.meterId, m);
@@ -438,6 +477,7 @@ export default async function handler(req: any, res: any) {
     // 2. Check if this is an explicit meter registration from UI or /api/meters
     if (payload.action === 'register_meter' || pathname.endsWith('/meters')) {
       const meterId = payload.meterId?.trim() || getNextMeterId();
+      deletedMeterIds.delete(meterId);
       const assignedApiKey = (payload.apiKey && typeof payload.apiKey === 'string' && payload.apiKey.trim())
         ? payload.apiKey.trim()
         : generateKey();

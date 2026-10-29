@@ -9,12 +9,16 @@ export const telemetryStore = new Map<string, TelemetryLog[]>();
 export const anomalyStore = new Map<string, AnomalyAlert[]>();
 export const userPreferencesStore = new Map<string, NotificationPreferences>();
 
+export const deletedMeterIds = new Set<string>();
+
 const CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_meters.json');
+const DELETED_CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_deleted_meters.json');
 
 export function saveMetersToDisk(): void {
   try {
-    const list = Array.from(activeMeters.values());
+    const list = Array.from(activeMeters.values()).filter(m => !deletedMeterIds.has(m.meterId));
     fs.writeFileSync(CACHE_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    fs.writeFileSync(DELETED_CACHE_FILE, JSON.stringify(Array.from(deletedMeterIds), null, 2), 'utf-8');
   } catch (err) {
     // Non-fatal disk sync error
   }
@@ -22,12 +26,24 @@ export function saveMetersToDisk(): void {
 
 export function loadMetersFromDisk(): void {
   try {
+    if (fs.existsSync(DELETED_CACHE_FILE)) {
+      const rawDel = fs.readFileSync(DELETED_CACHE_FILE, 'utf-8');
+      const delList = JSON.parse(rawDel);
+      if (Array.isArray(delList)) {
+        delList.forEach((id: string) => {
+          if (id) {
+            deletedMeterIds.add(id);
+            activeMeters.delete(id);
+          }
+        });
+      }
+    }
     if (fs.existsSync(CACHE_FILE)) {
       const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
       const list = JSON.parse(raw);
       if (Array.isArray(list)) {
         list.forEach((m: Meter) => {
-          if (m && m.meterId && !activeMeters.has(m.meterId)) {
+          if (m && m.meterId && !activeMeters.has(m.meterId) && !deletedMeterIds.has(m.meterId)) {
             activeMeters.set(m.meterId, m);
           }
         });
@@ -43,8 +59,9 @@ loadMetersFromDisk();
 
 export function syncMeters(meters: Meter[]): void {
   if (!Array.isArray(meters)) return;
+  loadMetersFromDisk();
   for (const m of meters) {
-    if (m && m.meterId) {
+    if (m && m.meterId && !deletedMeterIds.has(m.meterId)) {
       const existing = activeMeters.get(m.meterId);
       if (!existing) {
         activeMeters.set(m.meterId, {
@@ -155,15 +172,14 @@ export interface IngestPayload {
  * Delete a meter and its associated logs and alerts
  */
 export function deleteMeter(meterId: string): boolean {
-  if (!activeMeters.has(meterId)) {
-    loadMetersFromDisk();
-    if (!activeMeters.has(meterId)) return false;
-  }
+  loadMetersFromDisk();
+  deletedMeterIds.add(meterId);
+  const existed = activeMeters.has(meterId);
   activeMeters.delete(meterId);
   telemetryStore.delete(meterId);
   anomalyStore.delete(meterId);
   saveMetersToDisk();
-  return true;
+  return existed || true;
 }
 
 /**

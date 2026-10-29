@@ -58,23 +58,38 @@ const telemetryStore = new Map<string, any[]>();
 const anomalyStore = new Map<string, any[]>();
 const userPreferencesStore = new Map<string, any>();
 
+const deletedMeterIds = new Set<string>();
 const CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_meters.json');
+const DELETED_CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_deleted_meters.json');
 
 function saveMetersToDisk() {
   try {
-    const list = Array.from(activeMeters.values());
+    const list = Array.from(activeMeters.values()).filter(m => !deletedMeterIds.has(m.meterId));
     fs.writeFileSync(CACHE_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    fs.writeFileSync(DELETED_CACHE_FILE, JSON.stringify(Array.from(deletedMeterIds), null, 2), 'utf-8');
   } catch {}
 }
 
 function loadMetersFromDisk() {
   try {
+    if (fs.existsSync(DELETED_CACHE_FILE)) {
+      const rawDel = fs.readFileSync(DELETED_CACHE_FILE, 'utf-8');
+      const delList = JSON.parse(rawDel);
+      if (Array.isArray(delList)) {
+        delList.forEach((id: string) => {
+          if (id) {
+            deletedMeterIds.add(id);
+            activeMeters.delete(id);
+          }
+        });
+      }
+    }
     if (fs.existsSync(CACHE_FILE)) {
       const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
       const list = JSON.parse(raw);
       if (Array.isArray(list)) {
         list.forEach((m: MeterData) => {
-          if (m && m.meterId && !activeMeters.has(m.meterId)) {
+          if (m && m.meterId && !activeMeters.has(m.meterId) && !deletedMeterIds.has(m.meterId)) {
             activeMeters.set(m.meterId, m);
           }
         });
@@ -116,9 +131,11 @@ export function getNextMeterId(): string {
 }
 
 function seedDemoData() {
+  loadMetersFromDisk();
   if (activeMeters.size > 0) return;
   const now = Date.now();
   const demoMeterId = 'ESP32-MTR-8842';
+  if (deletedMeterIds.has(demoMeterId)) return;
 
   const demoMeter: MeterData = {
     id: demoMeterId,
@@ -637,14 +654,13 @@ app.post(['/api/meters/:meterId/rotate-key', '/meters/:meterId/rotate-key'], (re
 
 // Delete meter
 app.delete(['/api/meters/:meterId', '/meters/:meterId'], (req, res) => {
-  seedDemoData();
+  loadMetersFromDisk();
   const targetId = req.params.meterId;
-  if (!activeMeters.has(targetId)) {
-    return res.status(404).json({ success: false, error: `Meter '${targetId}' not found` });
-  }
+  deletedMeterIds.add(targetId);
   activeMeters.delete(targetId);
   telemetryStore.delete(targetId);
   anomalyStore.delete(targetId);
+  saveMetersToDisk();
   res.json({ success: true, meterId: targetId, message: `Meter '${targetId}' deleted successfully.` });
 });
 

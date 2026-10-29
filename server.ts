@@ -17,7 +17,8 @@ import {
   incrementMetersCreated,
   saveMetersToDisk,
   loadMetersFromDisk,
-  syncMeters
+  syncMeters,
+  deletedMeterIds
 } from './src/server/telemetryHandler';
 import type { NotificationPreferences, Meter } from './src/types/energy';
 
@@ -45,6 +46,7 @@ function ensureDemoMeters() {
   if (activeMeters.size > 0) return;
 
   const demoMeterId = 'ESP32-MTR-8842';
+  if (deletedMeterIds.has(demoMeterId)) return;
   const now = Date.now();
 
   const demoMeter = {
@@ -135,6 +137,22 @@ app.get('/api/health', (req, res) => {
 app.post('/api/telemetry/ingest', (req, res) => {
   try {
     const payload = req.body || {};
+    const action = (req.query.action as string) || payload.action;
+
+    if (action === 'delete_meter') {
+      const targetId = ((req.query.meterId as string) || payload.meterId || '').trim();
+      if (targetId) {
+        deleteMeter(targetId);
+      }
+      return res.json({ success: true, deleted: true, meterId: targetId });
+    }
+
+    if (action === 'sync_meters') {
+      const metersToSync = Array.isArray(payload.meters) ? payload.meters : (payload.meter ? [payload.meter] : []);
+      syncMeters(metersToSync);
+      return res.json({ success: true, count: activeMeters.size });
+    }
+
     const apiKey = (req.headers['x-api-key'] as string) || payload.apiKey;
 
     const result = processTelemetryIngest(payload, apiKey);
@@ -266,6 +284,7 @@ app.post('/api/meters', (req, res) => {
   try {
     const body = req.body || {};
     const meterId = (body.meterId?.trim()) || getNextMeterId();
+    deletedMeterIds.delete(meterId);
     incrementMetersCreated();
 
     const assignedApiKey = (body.apiKey && typeof body.apiKey === 'string' && body.apiKey.trim())

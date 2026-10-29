@@ -15,7 +15,8 @@ import {
   getNextMeterId,
   incrementMetersCreated,
   saveMetersToDisk,
-  syncMeters
+  syncMeters,
+  deletedMeterIds
 } from './telemetryHandler';
 import { Meter, NotificationPreferences } from '../types/energy';
 
@@ -24,6 +25,7 @@ function ensureDemoMeters() {
   if (activeMeters.size > 0) return;
 
   const demoMeterId = 'ESP32-MTR-8842';
+  if (deletedMeterIds.has(demoMeterId)) return;
   const now = Date.now();
 
   const demoMeter: Meter = {
@@ -169,6 +171,67 @@ export function apiMiddlewarePlugin(): Plugin {
           // 2. Ingest telemetry from physical ESP32 or Simulator
           if (cleanPath === '/api/telemetry/ingest' && req.method === 'POST') {
             const body = await readJsonBody(req);
+            const host = req.headers.host || 'localhost';
+            const parsedUrl = new URL(rawUrl, `http://${host}`);
+            const action = parsedUrl.searchParams.get('action') || body.action;
+
+            if (action === 'delete_meter') {
+              const targetId = (body.meterId || parsedUrl.searchParams.get('meterId') || '').trim();
+              if (targetId) {
+                deleteMeter(targetId);
+              }
+              return sendJson(res, 200, { success: true, deleted: true, meterId: targetId });
+            }
+
+            if (action === 'sync_meters') {
+              const metersToSync = Array.isArray(body.meters) ? body.meters : (body.meter ? [body.meter] : []);
+              syncMeters(metersToSync);
+              return sendJson(res, 200, { success: true, count: activeMeters.size });
+            }
+
+            if (action === 'register_meter') {
+              const meterId = (body.meterId?.trim()) || getNextMeterId();
+              deletedMeterIds.delete(meterId);
+              const now = new Date().toISOString();
+              const assignedApiKey = (body.apiKey && typeof body.apiKey === 'string' && body.apiKey.trim())
+                ? body.apiKey.trim()
+                : generateApiKey();
+              const existing = activeMeters.get(meterId);
+              const newMeter: Meter = existing ? {
+                ...existing,
+                apiKey: assignedApiKey,
+                updatedAt: now,
+              } : {
+                id: meterId,
+                meterId,
+                ownerUid: body.ownerUid || 'demo_user',
+                name: body.name?.trim() || `Smart Meter ${meterId}`,
+                relayState: 'ON',
+                status: 'OFFLINE',
+                apiKey: assignedApiKey,
+                lastHeartbeat: null as any,
+                latitude: Number(body.latitude) || 6.5244,
+                longitude: Number(body.longitude) || 3.3792,
+                address: body.address || 'Smart Grid Connection Point',
+                voltage: 0.0,
+                current: 0.0,
+                activePower: 0.0,
+                reactivePower: 0.0,
+                powerFactor: 0.0,
+                frequency: 0.0,
+                totalEnergy: 0.0,
+                hasAnomaly: false,
+                anomalyType: 'NONE',
+                anomalySeverity: 'LOW',
+                anomalyDescription: 'Newly configured meter awaiting initial telemetry stream',
+                createdAt: now,
+                updatedAt: now,
+              };
+              activeMeters.set(meterId, newMeter);
+              saveMetersToDisk();
+              return sendJson(res, 201, { success: true, meter: newMeter });
+            }
+
             const apiKeyHeader = req.headers['x-api-key'] as string;
 
             try {
@@ -339,6 +402,7 @@ export function apiMiddlewarePlugin(): Plugin {
             const body = await readJsonBody(req);
             // Auto-generate meterId if not provided (MTR-XXXX format based on total meters)
             const meterId = (body.meterId?.trim()) || getNextMeterId();
+            deletedMeterIds.delete(meterId);
             const now = new Date().toISOString();
             incrementMetersCreated();
 
