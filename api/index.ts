@@ -59,30 +59,121 @@ const anomalyStore = new Map<string, any[]>();
 const userPreferencesStore = new Map<string, any>();
 
 const deletedMeterIds = new Set<string>();
-const CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_meters.json');
+const recentlyDeletedTimestamps = new Map<string, number>();
+const TMP_CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_meters.json');
+const WORKSPACE_CACHE_FILE = path.join(process.cwd(), '.voltpulse_meters.json');
 const DELETED_CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_deleted_meters.json');
 
-function saveMetersToDisk() {
+const FIRESTORE_BASE_URL =
+  'https://firestore.googleapis.com/v1/projects/gen-lang-client-0885826858/databases/ai-studio-33e80a9d-c379-4691-ae33-800b1ee682eb/documents';
+
+function parseFsVal(val: any): any {
+  if (!val || typeof val !== 'object') return undefined;
+  if ('stringValue' in val) return val.stringValue;
+  if ('doubleValue' in val) return Number(val.doubleValue);
+  if ('integerValue' in val) return Number(val.integerValue);
+  if ('booleanValue' in val) return Boolean(val.booleanValue);
+  if ('nullValue' in val) return null;
+  if ('timestampValue' in val) return val.timestampValue;
+  return undefined;
+}
+
+function parseFsFields(fields: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(fields || {})) {
+    out[k] = parseFsVal(v);
+  }
+  return out;
+}
+
+async function fetchMeterFromFirestore(meterId: string): Promise<MeterData | null> {
+  if (!meterId || typeof meterId !== 'string') return null;
+  const cleanId = meterId.trim();
+  const deletedAt = recentlyDeletedTimestamps.get(cleanId);
+  if (deletedAt && Date.now() - deletedAt < 5000) return null;
   try {
-    const list = Array.from(activeMeters.values());
-    fs.writeFileSync(CACHE_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    const res = await fetch(`${FIRESTORE_BASE_URL}/meters/${encodeURIComponent(cleanId)}`);
+    if (!res.ok) return null;
+    const docJson = await res.json();
+    if (!docJson || !docJson.fields) return null;
+    const data = parseFsFields(docJson.fields);
+    if (!data.apiKey) return null;
+    const hydrated: MeterData = {
+      id: data.id || cleanId,
+      meterId: data.meterId || cleanId,
+      ownerUid: data.ownerUid || 'demo_user',
+      name: data.name || `Smart Meter ${cleanId}`,
+      relayState: data.relayState === 'OFF' ? 'OFF' : 'ON',
+      status: evaluateOnline(data.lastHeartbeat),
+      apiKey: String(data.apiKey),
+      lastHeartbeat: data.lastHeartbeat || (null as any),
+      latitude: Number(data.latitude) || 6.5244,
+      longitude: Number(data.longitude) || 3.3792,
+      address: data.address || 'Smart Grid Connection Point',
+      voltage: Number(data.voltage) || 0.0,
+      current: Number(data.current) || 0.0,
+      activePower: Number(data.activePower) || 0.0,
+      reactivePower: Number(data.reactivePower) || 0.0,
+      powerFactor: Number(data.powerFactor) || 0.0,
+      frequency: Number(data.frequency) || 0.0,
+      totalEnergy: Number(data.totalEnergy) || 0.0,
+      hasAnomaly: Boolean(data.hasAnomaly),
+      anomalyType: data.anomalyType || 'NONE',
+      anomalySeverity: (data.anomalySeverity || 'LOW') as any,
+      anomalyDescription: data.anomalyDescription || 'System normal',
+      createdAt: data.createdAt || new Date().toISOString(),
+      updatedAt: data.updatedAt || new Date().toISOString(),
+    };
+    deletedMeterIds.delete(cleanId);
+    activeMeters.set(cleanId, hydrated);
+    saveMetersToDisk();
+    return hydrated;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureMeterLoaded(meterId: string): Promise<MeterData | undefined> {
+  if (!meterId) return undefined;
+  const cleanId = meterId.trim();
+  let meter = activeMeters.get(cleanId);
+  if (!meter) {
+    loadMetersFromDisk();
+    meter = activeMeters.get(cleanId);
+  }
+  if (!meter) {
+    meter = (await fetchMeterFromFirestore(cleanId)) || undefined;
+  }
+  return meter;
+}
+
+function saveMetersToDisk() {
+  const list = Array.from(activeMeters.values());
+  const payload = JSON.stringify(list, null, 2);
+  try {
+    fs.writeFileSync(TMP_CACHE_FILE, payload, 'utf-8');
+  } catch {}
+  try {
+    fs.writeFileSync(WORKSPACE_CACHE_FILE, payload, 'utf-8');
   } catch {}
 }
 
 function loadMetersFromDisk() {
-  try {
-    if (fs.existsSync(CACHE_FILE)) {
-      const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
-      const list = JSON.parse(raw);
-      if (Array.isArray(list)) {
-        list.forEach((m: MeterData) => {
-          if (m && m.meterId && !activeMeters.has(m.meterId) && !deletedMeterIds.has(m.meterId)) {
-            activeMeters.set(m.meterId, m);
-          }
-        });
+  for (const file of [WORKSPACE_CACHE_FILE, TMP_CACHE_FILE]) {
+    try {
+      if (fs.existsSync(file)) {
+        const raw = fs.readFileSync(file, 'utf-8');
+        const list = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          list.forEach((m: MeterData) => {
+            if (m && m.meterId && !activeMeters.has(m.meterId) && !deletedMeterIds.has(m.meterId)) {
+              activeMeters.set(m.meterId, m);
+            }
+          });
+        }
       }
-    }
-  } catch {}
+    } catch {}
+  }
 }
 
 function resetAllMeters() {
@@ -90,10 +181,12 @@ function resetAllMeters() {
   telemetryStore.clear();
   anomalyStore.clear();
   deletedMeterIds.clear();
-  try {
-    if (fs.existsSync(CACHE_FILE)) fs.unlinkSync(CACHE_FILE);
-    if (fs.existsSync(DELETED_CACHE_FILE)) fs.unlinkSync(DELETED_CACHE_FILE);
-  } catch {}
+  recentlyDeletedTimestamps.clear();
+  for (const file of [TMP_CACHE_FILE, WORKSPACE_CACHE_FILE, DELETED_CACHE_FILE]) {
+    try {
+      if (fs.existsSync(file)) fs.unlinkSync(file);
+    } catch {}
+  }
 }
 
 loadMetersFromDisk();
@@ -146,7 +239,7 @@ app.get(['/api/health', '/health'], (req, res) => {
 });
 
 // 2. Telemetry Ingest
-app.post(['/api/telemetry/ingest', '/telemetry/ingest'], (req, res) => {
+app.post(['/api/telemetry/ingest', '/telemetry/ingest'], async (req, res) => {
   try {
     seedDemoData();
     const payload = req.body || {};
@@ -155,12 +248,8 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], (req, res) => {
       return res.status(400).json({ success: false, error: "Validation failed: 'meterId' is required" });
     }
 
-    // STRICT CHECK: Meter MUST already exist
-    let meter = activeMeters.get(meterId);
-    if (!meter) {
-      loadMetersFromDisk();
-      meter = activeMeters.get(meterId);
-    }
+    // STRICT CHECK: Meter MUST already exist (hydrate from Firestore on cold start)
+    const meter = await ensureMeterLoaded(meterId);
     if (!meter) {
       return res.status(404).json({
         success: false,

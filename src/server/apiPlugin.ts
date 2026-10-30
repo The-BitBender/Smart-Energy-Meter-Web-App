@@ -17,6 +17,9 @@ import {
   saveMetersToDisk,
   syncMeters,
   deletedMeterIds,
+  clearMeterDeletedMarker,
+  ensureMeterLoaded,
+  persistMeterToFirestore,
   resetAllMeters
 } from './telemetryHandler';
 import { Meter, NotificationPreferences } from '../types/energy';
@@ -121,7 +124,7 @@ export function apiMiddlewarePlugin(): Plugin {
 
             if (action === 'register_meter') {
               const meterId = (body.meterId?.trim()) || getNextMeterId();
-              deletedMeterIds.delete(meterId);
+              clearMeterDeletedMarker(meterId);
               telemetryStore.delete(meterId);
               anomalyStore.delete(meterId);
               const now = new Date().toISOString();
@@ -156,13 +159,14 @@ export function apiMiddlewarePlugin(): Plugin {
               };
               activeMeters.set(meterId, newMeter);
               saveMetersToDisk();
+              persistMeterToFirestore(newMeter).catch(() => {});
               return sendJson(res, 201, { success: true, meter: newMeter });
             }
 
             const apiKeyHeader = req.headers['x-api-key'] as string;
 
             try {
-              const result = processTelemetryIngest(body, apiKeyHeader);
+              const result = await processTelemetryIngest(body, apiKeyHeader);
               return sendJson(res, 200, result);
             } catch (ingestErr: any) {
               const status = ingestErr instanceof IngestionError ? ingestErr.statusCode : 400;
@@ -186,7 +190,7 @@ export function apiMiddlewarePlugin(): Plugin {
               });
               return sendJson(res, 200, { success: true, meters: all });
             }
-            const meter = activeMeters.get(meterId) || null;
+            const meter = (await ensureMeterLoaded(meterId)) || null;
             if (meter) {
               meter.status = evaluateOnlineStatus(meter.lastHeartbeat);
             }
@@ -221,7 +225,7 @@ export function apiMiddlewarePlugin(): Plugin {
           const relayStatusMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)\/relay-status$/);
           if (relayStatusMatch && req.method === 'GET') {
             const meterId = decodeURIComponent(relayStatusMatch[1]);
-            const meter = activeMeters.get(meterId);
+            const meter = await ensureMeterLoaded(meterId);
             const status = meter ? evaluateOnlineStatus(meter.lastHeartbeat) : 'UNKNOWN';
             return sendJson(res, 200, {
               meterId,
@@ -235,7 +239,7 @@ export function apiMiddlewarePlugin(): Plugin {
           if (relayCmdMatch && req.method === 'POST') {
             const meterId = decodeURIComponent(relayCmdMatch[1]);
             const body = await readJsonBody(req);
-            const meter = activeMeters.get(meterId);
+            const meter = await ensureMeterLoaded(meterId);
             if (!meter) {
               return sendJson(res, 404, { success: false, error: `Meter '${meterId}' not found` });
             }
@@ -245,6 +249,8 @@ export function apiMiddlewarePlugin(): Plugin {
             meter.relayState = body.relayState;
             meter.updatedAt = new Date().toISOString();
             activeMeters.set(meterId, meter);
+            saveMetersToDisk();
+            persistMeterToFirestore(meter).catch(() => {});
             return sendJson(res, 200, { success: true, meterId, relayState: meter.relayState });
           }
 
@@ -252,6 +258,7 @@ export function apiMiddlewarePlugin(): Plugin {
           const rotateKeyMatch = cleanPath.match(/^\/api\/meters\/([^\/]+)\/rotate-key$/);
           if (rotateKeyMatch && req.method === 'POST') {
             const meterId = decodeURIComponent(rotateKeyMatch[1]);
+            await ensureMeterLoaded(meterId);
             try {
               // Always auto-generate fixed-length key
               const newKey = rotateMeterApiKey(meterId);
@@ -335,7 +342,7 @@ export function apiMiddlewarePlugin(): Plugin {
             const body = await readJsonBody(req);
             // Auto-generate meterId if not provided (MTR-XXXX format based on total meters)
             const meterId = (body.meterId?.trim()) || getNextMeterId();
-            deletedMeterIds.delete(meterId);
+            clearMeterDeletedMarker(meterId);
             telemetryStore.delete(meterId);
             anomalyStore.delete(meterId);
             const now = new Date().toISOString();
@@ -374,13 +381,14 @@ export function apiMiddlewarePlugin(): Plugin {
             };
             activeMeters.set(meterId, newMeter);
             saveMetersToDisk();
+            persistMeterToFirestore(newMeter).catch(() => {});
             return sendJson(res, 201, { success: true, meter: newMeter });
           }
 
           // 10. Get single meter (GET /api/meters/:id)
           if (deleteMeterMatch && req.method === 'GET') {
             const meterId = decodeURIComponent(deleteMeterMatch[1]);
-            const meter = activeMeters.get(meterId);
+            const meter = await ensureMeterLoaded(meterId);
             if (!meter) {
               return sendJson(res, 404, { success: false, error: `Meter '${meterId}' not found` });
             }

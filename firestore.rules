@@ -41,17 +41,22 @@ service cloud.firestore {
 
     // Meters collection
     match /meters/{meterId} {
-      allow get: if isValidId(meterId) && isSignedIn() && (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user');
+      allow get: if isValidId(meterId);
       allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user');
-      allow create: if isValidId(meterId) && isSignedIn() &&
-        request.resource.data.ownerUid == request.auth.uid &&
+      allow create: if isValidId(meterId) &&
         request.resource.data.name is string &&
         request.resource.data.name.size() <= 128 &&
-        request.resource.data.relayState in ['ON', 'OFF'];
-      allow update: if isValidId(meterId) && isSignedIn() &&
-        (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user') &&
-        request.resource.data.ownerUid == request.auth.uid &&
-        (!('relayState' in request.resource.data) || request.resource.data.relayState in ['ON', 'OFF']);
+        request.resource.data.relayState in ['ON', 'OFF'] &&
+        (
+          (isSignedIn() && request.resource.data.ownerUid == request.auth.uid) ||
+          (request.resource.data.apiKey is string && request.resource.data.apiKey.size() == 16 && request.resource.data.ownerUid is string && request.resource.data.ownerUid.size() <= 128)
+        );
+      allow update: if isValidId(meterId) &&
+        (!('relayState' in request.resource.data) || request.resource.data.relayState in ['ON', 'OFF']) &&
+        (
+          (isSignedIn() && (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user') && request.resource.data.ownerUid == request.auth.uid) ||
+          (resource.data.apiKey is string && resource.data.apiKey.size() == 16 && request.resource.data.apiKey == resource.data.apiKey && request.resource.data.ownerUid == resource.data.ownerUid)
+        );
       allow delete: if isValidId(meterId) && isSignedIn() && (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user');
 
       // Telemetry logs subcollection
@@ -59,7 +64,10 @@ service cloud.firestore {
         allow get, list: if isValidId(meterId) && isSignedIn() &&
           (resource == null || resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user' || isMeterOwner(meterId));
         allow create: if isValidId(meterId) && isValidId(telemetryId) &&
-          isSignedIn() && (request.resource.data.ownerUid == request.auth.uid || isMeterOwner(meterId));
+          (
+            (isSignedIn() && (request.resource.data.ownerUid == request.auth.uid || isMeterOwner(meterId))) ||
+            (exists(/databases/$(database)/documents/meters/$(meterId)) && request.resource.data.ownerUid == get(/databases/$(database)/documents/meters/$(meterId)).data.ownerUid)
+          );
         allow update, delete: if isValidId(meterId) && isValidId(telemetryId) && isSignedIn() &&
           (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user' || isMeterOwner(meterId));
       }
@@ -69,7 +77,10 @@ service cloud.firestore {
         allow get, list: if isValidId(meterId) && isSignedIn() &&
           (resource == null || resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user' || isMeterOwner(meterId));
         allow create: if isValidId(meterId) && isValidId(anomalyId) &&
-          isSignedIn() && (request.resource.data.ownerUid == request.auth.uid || isMeterOwner(meterId));
+          (
+            (isSignedIn() && (request.resource.data.ownerUid == request.auth.uid || isMeterOwner(meterId))) ||
+            (exists(/databases/$(database)/documents/meters/$(meterId)) && request.resource.data.ownerUid == get(/databases/$(database)/documents/meters/$(meterId)).data.ownerUid)
+          );
         allow update: if isValidId(meterId) && isValidId(anomalyId) && isSignedIn() &&
           (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == 'demo_user' || isMeterOwner(meterId)) &&
           request.resource.data.status in ['ACTIVE', 'RESOLVED', 'ACKNOWLEDGED'];

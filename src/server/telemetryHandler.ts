@@ -10,34 +10,193 @@ export const anomalyStore = new Map<string, AnomalyAlert[]>();
 export const userPreferencesStore = new Map<string, NotificationPreferences>();
 
 export const deletedMeterIds = new Set<string>();
+const recentlyDeletedTimestamps = new Map<string, number>();
 
-const CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_meters.json');
+const TMP_CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_meters.json');
+const WORKSPACE_CACHE_FILE = path.join(process.cwd(), '.voltpulse_meters.json');
 const DELETED_CACHE_FILE = path.join(process.platform === 'win32' ? process.cwd() : '/tmp', 'volt_pulse_deleted_meters.json');
 
-export function saveMetersToDisk(): void {
+export const FIRESTORE_BASE_URL =
+  'https://firestore.googleapis.com/v1/projects/gen-lang-client-0885826858/databases/ai-studio-33e80a9d-c379-4691-ae33-800b1ee682eb/documents';
+
+function parseFirestoreValue(val: any): any {
+  if (!val || typeof val !== 'object') return undefined;
+  if ('stringValue' in val) return val.stringValue;
+  if ('doubleValue' in val) return Number(val.doubleValue);
+  if ('integerValue' in val) return Number(val.integerValue);
+  if ('booleanValue' in val) return Boolean(val.booleanValue);
+  if ('nullValue' in val) return null;
+  if ('timestampValue' in val) return val.timestampValue;
+  if ('mapValue' in val) return parseFirestoreFields(val.mapValue?.fields || {});
+  if ('arrayValue' in val) return (val.arrayValue?.values || []).map(parseFirestoreValue);
+  return undefined;
+}
+
+function parseFirestoreFields(fields: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(fields || {})) {
+    out[k] = parseFirestoreValue(v);
+  }
+  return out;
+}
+
+function toFirestoreValue(val: any): any {
+  if (val === null || val === undefined) return { nullValue: null };
+  if (typeof val === 'boolean') return { booleanValue: val };
+  if (typeof val === 'number') return { doubleValue: Number.isFinite(val) ? val : 0 };
+  if (typeof val === 'string') return { stringValue: val };
+  if (Array.isArray(val)) return { arrayValue: { values: val.map(toFirestoreValue) } };
+  if (typeof val === 'object') return { mapValue: { fields: toFirestoreFields(val) } };
+  return { stringValue: String(val) };
+}
+
+function toFirestoreFields(obj: Record<string, any>): Record<string, any> {
+  const fields: Record<string, any> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) {
+      fields[k] = toFirestoreValue(v);
+    }
+  }
+  return fields;
+}
+
+export async function fetchMeterFromFirestore(meterId: string): Promise<Meter | null> {
+  if (!meterId || typeof meterId !== 'string') return null;
+  const cleanId = meterId.trim();
+  if (!cleanId) return null;
+
+  // Avoid racing with an active deletion triggered within the last 5 seconds
+  const deletedAt = recentlyDeletedTimestamps.get(cleanId);
+  if (deletedAt && Date.now() - deletedAt < 5000) {
+    return null;
+  }
+
   try {
-    const list = Array.from(activeMeters.values());
-    fs.writeFileSync(CACHE_FILE, JSON.stringify(list, null, 2), 'utf-8');
-  } catch (err) {
-    // Non-fatal disk sync error
+    const res = await fetch(`${FIRESTORE_BASE_URL}/meters/${encodeURIComponent(cleanId)}`);
+    if (!res.ok) return null;
+    const docJson = await res.json();
+    if (!docJson || !docJson.fields) return null;
+    const data = parseFirestoreFields(docJson.fields);
+    if (!data.apiKey) return null;
+
+    const hydrated: Meter = {
+      id: data.id || cleanId,
+      meterId: data.meterId || cleanId,
+      ownerUid: data.ownerUid || 'demo_user',
+      name: data.name || `Smart Meter ${cleanId}`,
+      relayState: data.relayState === 'OFF' ? 'OFF' : 'ON',
+      status: evaluateOnlineStatus(data.lastHeartbeat),
+      apiKey: String(data.apiKey),
+      lastHeartbeat: data.lastHeartbeat || (null as any),
+      latitude: Number(data.latitude) || 6.5244,
+      longitude: Number(data.longitude) || 3.3792,
+      address: data.address || 'Smart Grid Connection Point',
+      voltage: Number(data.voltage) || 0.0,
+      current: Number(data.current) || 0.0,
+      activePower: Number(data.activePower) || 0.0,
+      reactivePower: Number(data.reactivePower) || 0.0,
+      powerFactor: Number(data.powerFactor) || 0.0,
+      frequency: Number(data.frequency) || 0.0,
+      totalEnergy: Number(data.totalEnergy) || 0.0,
+      hasAnomaly: Boolean(data.hasAnomaly),
+      anomalyType: (data.anomalyType || 'NONE') as any,
+      anomalySeverity: (data.anomalySeverity || 'LOW') as any,
+      anomalyDescription: data.anomalyDescription || 'System normal',
+      createdAt: data.createdAt || new Date().toISOString(),
+      updatedAt: data.updatedAt || new Date().toISOString(),
+    };
+
+    deletedMeterIds.delete(cleanId);
+    activeMeters.set(cleanId, hydrated);
+    saveMetersToDisk();
+    return hydrated;
+  } catch {
+    return null;
   }
 }
 
-export function loadMetersFromDisk(): void {
+export async function persistMeterToFirestore(
+  meter: Meter,
+  log?: TelemetryLog,
+  alert?: AnomalyAlert
+): Promise<void> {
+  if (!meter || !meter.meterId || !meter.apiKey) return;
   try {
-    if (fs.existsSync(CACHE_FILE)) {
-      const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
-      const list = JSON.parse(raw);
-      if (Array.isArray(list)) {
-        list.forEach((m: Meter) => {
-          if (m && m.meterId && !activeMeters.has(m.meterId) && !deletedMeterIds.has(m.meterId)) {
-            activeMeters.set(m.meterId, m);
-          }
-        });
-      }
+    await fetch(`${FIRESTORE_BASE_URL}/meters/${encodeURIComponent(meter.meterId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: toFirestoreFields(meter as any) }),
+    });
+
+    if (log && log.id) {
+      await fetch(
+        `${FIRESTORE_BASE_URL}/meters/${encodeURIComponent(meter.meterId)}/telemetry?documentId=${encodeURIComponent(log.id)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: toFirestoreFields(log as any) }),
+        }
+      ).catch(() => {});
     }
-  } catch (err) {
-    // Non-fatal disk read error
+
+    if (alert && alert.id) {
+      await fetch(
+        `${FIRESTORE_BASE_URL}/meters/${encodeURIComponent(meter.meterId)}/anomalies?documentId=${encodeURIComponent(alert.id)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: toFirestoreFields(alert as any) }),
+        }
+      ).catch(() => {});
+    }
+  } catch {
+    // Non-fatal background sync error
+  }
+}
+
+export async function ensureMeterLoaded(meterId: string): Promise<Meter | undefined> {
+  if (!meterId) return undefined;
+  const cleanId = meterId.trim();
+  let meter = activeMeters.get(cleanId);
+  if (!meter) {
+    loadMetersFromDisk();
+    meter = activeMeters.get(cleanId);
+  }
+  if (!meter) {
+    const fromFs = await fetchMeterFromFirestore(cleanId);
+    if (fromFs) {
+      meter = fromFs;
+    }
+  }
+  return meter;
+}
+
+export function saveMetersToDisk(): void {
+  const list = Array.from(activeMeters.values());
+  const payload = JSON.stringify(list, null, 2);
+  try {
+    fs.writeFileSync(TMP_CACHE_FILE, payload, 'utf-8');
+  } catch {}
+  try {
+    fs.writeFileSync(WORKSPACE_CACHE_FILE, payload, 'utf-8');
+  } catch {}
+}
+
+export function loadMetersFromDisk(): void {
+  for (const file of [WORKSPACE_CACHE_FILE, TMP_CACHE_FILE]) {
+    try {
+      if (fs.existsSync(file)) {
+        const raw = fs.readFileSync(file, 'utf-8');
+        const list = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          list.forEach((m: Meter) => {
+            if (m && m.meterId && !activeMeters.has(m.meterId) && !deletedMeterIds.has(m.meterId)) {
+              activeMeters.set(m.meterId, m);
+            }
+          });
+        }
+      }
+    } catch {}
   }
 }
 
@@ -46,15 +205,30 @@ export function resetAllMeters(): void {
   telemetryStore.clear();
   anomalyStore.clear();
   deletedMeterIds.clear();
+  recentlyDeletedTimestamps.clear();
   totalMetersEverCreated = 0;
-  try {
-    if (fs.existsSync(CACHE_FILE)) fs.unlinkSync(CACHE_FILE);
-    if (fs.existsSync(DELETED_CACHE_FILE)) fs.unlinkSync(DELETED_CACHE_FILE);
-  } catch {}
+  for (const file of [TMP_CACHE_FILE, WORKSPACE_CACHE_FILE, DELETED_CACHE_FILE]) {
+    try {
+      if (fs.existsSync(file)) fs.unlinkSync(file);
+    } catch {}
+  }
 }
 
-// Initial hydration from disk
+// Initial hydration from disk and common sequential meter IDs in Firestore
 loadMetersFromDisk();
+(async () => {
+  for (let i = 1; i <= 10; i++) {
+    const candidateId = `MTR-${String(i).padStart(4, '0')}`;
+    if (!activeMeters.has(candidateId)) {
+      await fetchMeterFromFirestore(candidateId);
+    }
+  }
+})().catch(() => {});
+
+export function clearMeterDeletedMarker(meterId: string): void {
+  deletedMeterIds.delete(meterId);
+  recentlyDeletedTimestamps.delete(meterId);
+}
 
 export function syncMeters(meters: Meter[], _replaceAll = false, deletedIds?: string[]): void {
   if (!Array.isArray(meters)) return;
@@ -75,7 +249,7 @@ export function syncMeters(meters: Meter[], _replaceAll = false, deletedIds?: st
   for (const m of meters) {
     if (m && m.meterId) {
       // Any meter present in the active sync list is explicitly active (never deleted)
-      deletedMeterIds.delete(m.meterId);
+      clearMeterDeletedMarker(m.meterId);
       const existing = activeMeters.get(m.meterId);
       if (!existing) {
         activeMeters.set(m.meterId, {
@@ -188,6 +362,7 @@ export interface IngestPayload {
 export function deleteMeter(meterId: string): boolean {
   loadMetersFromDisk();
   deletedMeterIds.add(meterId);
+  recentlyDeletedTimestamps.set(meterId, Date.now());
   const existed = activeMeters.has(meterId);
   activeMeters.delete(meterId);
   telemetryStore.delete(meterId);
@@ -251,7 +426,7 @@ export function updateMeter(meterId: string, updates: Partial<Meter>): Meter {
  * - Numerical telemetry MUST be valid finite numbers within plausible physical ranges
  * - NEVER auto-creates a meter on ingestion
  */
-export function processTelemetryIngest(payload: IngestPayload, headerApiKey?: string) {
+export async function processTelemetryIngest(payload: IngestPayload, headerApiKey?: string) {
   if (!payload || typeof payload !== 'object') {
     throw new IngestionError(400, 'Invalid request body: Expected a valid JSON object');
   }
@@ -263,12 +438,8 @@ export function processTelemetryIngest(payload: IngestPayload, headerApiKey?: st
 
   const meterId = rawMeterId.trim();
 
-  // 1. Strict Meter Existence Check - NO auto-creation
-  let meter = activeMeters.get(meterId);
-  if (!meter) {
-    loadMetersFromDisk();
-    meter = activeMeters.get(meterId);
-  }
+  // 1. Strict Meter Existence Check - Hydrate from memory, disk, or Firestore on cold start
+  const meter = await ensureMeterLoaded(meterId);
 
   if (!meter) {
     throw new IngestionError(
@@ -300,6 +471,9 @@ export function processTelemetryIngest(payload: IngestPayload, headerApiKey?: st
     }
     meter.relayState = payload.relayState;
     meter.updatedAt = new Date().toISOString();
+    activeMeters.set(meterId, meter);
+    saveMetersToDisk();
+    persistMeterToFirestore(meter).catch(() => {});
     return {
       success: true,
       meterId,
@@ -536,6 +710,9 @@ export function processTelemetryIngest(payload: IngestPayload, headerApiKey?: st
       console.log(`[ALERT NOTIFICATION] Meter ${meterId} -> ${ownerPrefs.alertEmail}: ${anomalyResult.title}`);
     }
   }
+
+  // Persist updated meter state and telemetry log to Firestore in background
+  persistMeterToFirestore(meter, log, anomalyAlert).catch(() => {});
 
   return {
     success: true,

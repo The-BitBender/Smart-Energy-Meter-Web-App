@@ -19,6 +19,9 @@ import {
   loadMetersFromDisk,
   syncMeters,
   deletedMeterIds,
+  clearMeterDeletedMarker,
+  ensureMeterLoaded,
+  persistMeterToFirestore,
   resetAllMeters
 } from './src/server/telemetryHandler';
 import type { NotificationPreferences, Meter } from './src/types/energy';
@@ -58,7 +61,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Telemetry Ingestion
-app.post('/api/telemetry/ingest', (req, res) => {
+app.post('/api/telemetry/ingest', async (req, res) => {
   try {
     const payload = req.body || {};
     const action = (req.query.action as string) || payload.action;
@@ -84,7 +87,7 @@ app.post('/api/telemetry/ingest', (req, res) => {
 
     if (action === 'register_meter') {
       const meterId = (payload.meterId?.trim()) || getNextMeterId();
-      deletedMeterIds.delete(meterId);
+      clearMeterDeletedMarker(meterId);
       telemetryStore.delete(meterId);
       anomalyStore.delete(meterId);
       const now = new Date().toISOString();
@@ -119,12 +122,13 @@ app.post('/api/telemetry/ingest', (req, res) => {
       };
       activeMeters.set(meterId, newMeter);
       saveMetersToDisk();
+      persistMeterToFirestore(newMeter).catch(() => {});
       return res.status(201).json({ success: true, meter: newMeter });
     }
 
     const apiKey = (req.headers['x-api-key'] as string) || payload.apiKey;
 
-    const result = processTelemetryIngest(payload, apiKey);
+    const result = await processTelemetryIngest(payload, apiKey);
     res.json(result);
   } catch (err: any) {
     const statusCode = err instanceof IngestionError ? err.statusCode : 400;
@@ -133,7 +137,7 @@ app.post('/api/telemetry/ingest', (req, res) => {
 });
 
 // Fast telemetry query for live UI sync
-app.get('/api/telemetry/latest', (req, res) => {
+app.get('/api/telemetry/latest', async (req, res) => {
   ensureDemoMeters();
   const meterId = (req.query.meterId as string)?.trim();
   if (!meterId) {
@@ -143,7 +147,7 @@ app.get('/api/telemetry/latest', (req, res) => {
     });
     return res.json({ success: true, meters: all });
   }
-  const meter = activeMeters.get(meterId) || null;
+  const meter = (await ensureMeterLoaded(meterId)) || null;
   if (meter) {
     meter.status = evaluateOnlineStatus(meter.lastHeartbeat);
   }
@@ -175,8 +179,8 @@ app.get('/api/telemetry/meters', (req, res) => {
 });
 
 // Fast relay poll
-app.get('/api/meters/:meterId/relay-status', (req, res) => {
-  const meter = activeMeters.get(req.params.meterId);
+app.get('/api/meters/:meterId/relay-status', async (req, res) => {
+  const meter = await ensureMeterLoaded(req.params.meterId);
   const status = meter ? evaluateOnlineStatus(meter.lastHeartbeat) : 'UNKNOWN';
   res.json({
     meterId: req.params.meterId,
@@ -186,8 +190,8 @@ app.get('/api/meters/:meterId/relay-status', (req, res) => {
 });
 
 // Remote relay toggle
-app.post('/api/meters/:meterId/relay', (req, res) => {
-  const meter = activeMeters.get(req.params.meterId);
+app.post('/api/meters/:meterId/relay', async (req, res) => {
+  const meter = await ensureMeterLoaded(req.params.meterId);
   if (!meter) return res.status(404).json({ success: false, error: 'Meter not found' });
   if (req.body.relayState !== 'ON' && req.body.relayState !== 'OFF') {
     return res.status(400).json({ success: false, error: 'relayState must be ON or OFF' });
@@ -195,14 +199,18 @@ app.post('/api/meters/:meterId/relay', (req, res) => {
   meter.relayState = req.body.relayState;
   meter.updatedAt = new Date().toISOString();
   activeMeters.set(req.params.meterId, meter);
+  saveMetersToDisk();
+  persistMeterToFirestore(meter).catch(() => {});
   res.json({ success: true, meterId: meter.meterId, relayState: meter.relayState });
 });
 
 // Rotate or set API key for a meter - strictly auto-generated with fixed length (16 chars)
-app.post('/api/meters/:meterId/rotate-key', (req, res) => {
+app.post('/api/meters/:meterId/rotate-key', async (req, res) => {
   try {
+    await ensureMeterLoaded(req.params.meterId);
     const newKey = rotateMeterApiKey(req.params.meterId);
     const meter = activeMeters.get(req.params.meterId);
+    if (meter) persistMeterToFirestore(meter).catch(() => {});
     res.json({ success: true, meterId: req.params.meterId, apiKey: newKey, meter });
   } catch (err: any) {
     const statusCode = err instanceof IngestionError ? err.statusCode : 400;
@@ -259,7 +267,7 @@ app.post('/api/meters', (req, res) => {
   try {
     const body = req.body || {};
     const meterId = (body.meterId?.trim()) || getNextMeterId();
-    deletedMeterIds.delete(meterId);
+    clearMeterDeletedMarker(meterId);
     telemetryStore.delete(meterId);
     anomalyStore.delete(meterId);
     incrementMetersCreated();
@@ -299,6 +307,7 @@ app.post('/api/meters', (req, res) => {
 
     activeMeters.set(meterId, newMeter);
     saveMetersToDisk();
+    persistMeterToFirestore(newMeter).catch(() => {});
     res.status(201).json({ success: true, meter: newMeter });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to register meter' });
@@ -317,8 +326,8 @@ app.post('/api/meters/sync', (req, res) => {
   }
 });
 
-app.get('/api/meters/:meterId', (req, res) => {
-  const meter = activeMeters.get(req.params.meterId);
+app.get('/api/meters/:meterId', async (req, res) => {
+  const meter = await ensureMeterLoaded(req.params.meterId);
   if (!meter) return res.status(404).json({ error: 'Meter not found' });
   res.json({ meter });
 });

@@ -223,7 +223,7 @@ export default function App() {
     return () => clearInterval(meterDiscoveryTimer);
   }, [user, fetchBackendMeters]);
 
-  // 3. Firestore Live Sync for Meters (with one-time clean database reset)
+  // 3. Firestore Live Sync for Meters
   useEffect(() => {
     if (!user) return;
 
@@ -235,61 +235,6 @@ export default function App() {
       try {
         localStorage.removeItem('vp_deleted_meters');
       } catch {}
-
-      // One-time database cleanup for a completely fresh start
-      try {
-        if (localStorage.getItem('vp_db_fresh_start_v2') !== 'done') {
-          localStorage.setItem('vp_db_fresh_start_v2', 'done');
-          deletedMeterIdsRef.current.clear();
-
-          await Promise.allSettled([
-            fetch('/api/meters/reset', { method: 'POST' }),
-            fetch('/api/telemetry/ingest', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'reset_all' }),
-            }),
-          ]);
-
-          const existingSnap = await getDocs(
-            query(collection(db, 'meters'), where('ownerUid', '==', user.uid))
-          ).catch(() => null);
-
-          const allIdsToPurge = new Set<string>([
-            'ESP32-MTR-8842',
-            'MTR-0001',
-            'MTR-0002',
-            'MTR-0003',
-            'MTR-0004',
-            'MTR-0005',
-            'MTR-0006',
-            'MTR-0007',
-            'MTR-0008',
-            'MTR-0009',
-            'MTR-0010',
-          ]);
-          if (existingSnap) {
-            existingSnap.forEach((d) => {
-              allIdsToPurge.add(d.id);
-              const data = d.data() as Meter;
-              if (data?.meterId) allIdsToPurge.add(data.meterId);
-            });
-          }
-
-          await Promise.allSettled(
-            Array.from(allIdsToPurge).map((id) => purgeMeterFromFirestore(id))
-          );
-
-          if (!isCancelled) {
-            setMeters([]);
-            setActiveMeter(null);
-            setTelemetryLogs([]);
-            setAnomalies([]);
-          }
-        }
-      } catch (cleanupErr) {
-        console.warn('Database cleanup notice:', cleanupErr);
-      }
 
       if (isCancelled) return;
 
