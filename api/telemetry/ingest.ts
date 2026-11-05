@@ -636,8 +636,17 @@ export default async function handler(req: any, res: any) {
         }
 
         const incomingApiKey = ((req.headers['x-api-key'] as string) || parsedUrl.searchParams.get('apiKey') || '').trim();
-        if (incomingApiKey && incomingApiKey !== meter.apiKey) {
-          return sendResponse(res, 401, { success: false, error: 'Invalid API key' });
+        if (!incomingApiKey) {
+          return sendResponse(res, 401, {
+            success: false,
+            error: `Authentication failed: Missing API Key for meter '${targetMeterId}'. Include 'X-API-Key' header or 'apiKey' query parameter.`,
+          });
+        }
+        if (incomingApiKey !== meter.apiKey) {
+          return sendResponse(res, 401, {
+            success: false,
+            error: `Authentication failed: Invalid API key for meter '${targetMeterId}'.`,
+          });
         }
 
         const energyKwh = Math.round((Number(meter.totalEnergy) || 0) * 1000) / 1000;

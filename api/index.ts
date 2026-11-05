@@ -568,8 +568,17 @@ app.get(['/api/telemetry/energy', '/telemetry/energy', '/api/meters/:meterId/ene
     return res.status(404).json({ success: false, error: `Meter '${targetMeterId}' not found` });
   }
   const incomingApiKey = ((req.headers['x-api-key'] as string) || (req.query.apiKey as string) || '').trim();
-  if (incomingApiKey && incomingApiKey !== meter.apiKey) {
-    return res.status(401).json({ success: false, error: 'Invalid API key' });
+  if (!incomingApiKey) {
+    return res.status(401).json({
+      success: false,
+      error: `Authentication failed: Missing API Key for meter '${targetMeterId}'. Include 'X-API-Key' header or 'apiKey' query parameter.`,
+    });
+  }
+  if (incomingApiKey !== meter.apiKey) {
+    return res.status(401).json({
+      success: false,
+      error: `Authentication failed: Invalid API key for meter '${targetMeterId}'.`,
+    });
   }
   const energyKwh = Math.round((Number(meter.totalEnergy) || 0) * 1000) / 1000;
   const energyWh = Math.round(energyKwh * 1000 * 10) / 10;
