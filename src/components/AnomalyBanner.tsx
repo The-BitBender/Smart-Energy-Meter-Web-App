@@ -44,11 +44,11 @@ export const AnomalyBanner: React.FC<AnomalyBannerProps> = ({
               <span className={`text-xs font-mono font-black px-2.5 py-0.5 rounded-full border tracking-wide uppercase ${
                 isCritical
                   ? 'bg-rose-500 text-white border-rose-400'
-                  : 'bg-amber-500 text-[#003833] border-amber-400 font-extrabold'
+                  : 'bg-amber-500 text-[#112327] border-amber-400 font-extrabold'
               }`}>
                 {meter.anomalySeverity} ALERT • {meter.anomalyType.replace(/_/g, ' ')}
               </span>
-              <span className="text-xs font-mono text-teal-200">
+              <span className="text-xs font-mono text-white/80">
                 Meter ID: <strong className="text-white">{meter.meterId}</strong>
               </span>
             </div>
@@ -57,11 +57,11 @@ export const AnomalyBanner: React.FC<AnomalyBannerProps> = ({
               Potential Energy Theft or Electrical Hazard Detected
             </h3>
 
-            <p className="text-xs sm:text-sm text-teal-100 mt-1 max-w-3xl leading-relaxed">
+            <p className="text-xs sm:text-sm text-white/90 mt-1 max-w-3xl leading-relaxed">
               {meter.anomalyDescription}
             </p>
 
-            <div className="flex items-center space-x-4 mt-2 text-xs font-mono text-teal-200">
+            <div className="flex items-center space-x-4 mt-2 text-xs font-mono text-white/80">
               <span>Telemetry Snapshot: <strong className="text-white">{meter.voltage.toFixed(1)}V</strong></span>
               <span>•</span>
               <span><strong className="text-white">{meter.current.toFixed(2)}A</strong></span>
@@ -89,7 +89,7 @@ export const AnomalyBanner: React.FC<AnomalyBannerProps> = ({
           <button
             onClick={onClearAnomaly}
             type="button"
-            className="flex-1 md:flex-initial flex items-center justify-center space-x-2 px-3.5 py-2.5 rounded-xl bg-white hover:bg-teal-50 text-[#005149] text-xs font-black transition-all shadow-md"
+            className="flex-1 md:flex-initial flex items-center justify-center space-x-2 px-3.5 py-2.5 rounded-xl bg-white hover:bg-white/90 text-[#112327] text-xs font-black transition-all shadow-md"
           >
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             <span>Acknowledge</span>
@@ -98,7 +98,7 @@ export const AnomalyBanner: React.FC<AnomalyBannerProps> = ({
           <button
             onClick={onViewDetails}
             type="button"
-            className="flex items-center justify-center space-x-1 px-3 py-2 text-xs font-bold text-teal-200 hover:text-white transition-colors"
+            className="flex items-center justify-center space-x-1 px-3 py-2 text-xs font-bold text-white/80 hover:text-white transition-colors"
           >
             <span>Log Audit</span>
             <ArrowRight className="w-3.5 h-3.5" />

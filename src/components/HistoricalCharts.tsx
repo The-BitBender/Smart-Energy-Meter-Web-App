@@ -131,7 +131,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
   const activePoint = hoverIndex !== null && chartData ? chartData.points[hoverIndex] : null;
 
   return (
-    <div className="rounded-2xl bg-[#005149] border border-white/20 p-5 shadow-lg mb-6 text-white transition-all hover:border-white/40">
+    <div className="rounded-2xl bg-[#1e373e] border border-white/20 p-5 shadow-lg mb-6 text-white transition-all hover:border-white/40">
       
       {/* Top Header & Range Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/15">
@@ -140,7 +140,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
             <BarChart3 className="w-5 h-5 text-white" />
             <h3 className="text-base font-bold text-white">Historical Telemetry &amp; Analytics</h3>
           </div>
-          <p className="text-xs text-teal-200 mt-0.5">
+          <p className="text-xs text-white/75 mt-0.5">
             Real-time time-series logging from ESP32 • Meter <span className="font-mono text-white font-extrabold">{meterId}</span>
           </p>
         </div>
@@ -148,11 +148,11 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
         {/* View & Range Toggle Pill buttons */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Metric Selector */}
-          <div className="flex rounded-lg bg-[#003833] p-1 border border-white/20 text-xs font-semibold">
+          <div className="flex rounded-lg bg-[#112327] p-1 border border-white/20 text-xs font-semibold">
             <button
               onClick={() => setMetricView('power_energy')}
               className={`px-3 py-1.5 rounded-md transition-colors ${
-                metricView === 'power_energy' ? 'bg-white text-[#005149] font-extrabold shadow-sm' : 'text-teal-200 hover:text-white'
+                metricView === 'power_energy' ? 'bg-white text-[#112327] font-extrabold shadow-sm' : 'text-white/75 hover:text-white'
               }`}
             >
               Power &amp; Energy
@@ -160,7 +160,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
             <button
               onClick={() => setMetricView('voltage_current')}
               className={`px-3 py-1.5 rounded-md transition-colors ${
-                metricView === 'voltage_current' ? 'bg-white text-[#005149] font-extrabold shadow-sm' : 'text-teal-200 hover:text-white'
+                metricView === 'voltage_current' ? 'bg-white text-[#112327] font-extrabold shadow-sm' : 'text-white/75 hover:text-white'
               }`}
             >
               Voltage &amp; Current
@@ -168,13 +168,13 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
           </div>
 
           {/* Time range selector */}
-          <div className="flex rounded-lg bg-[#003833] p-1 border border-white/20 text-xs font-mono font-bold">
+          <div className="flex rounded-lg bg-[#112327] p-1 border border-white/20 text-xs font-mono font-bold">
             {(['1h', '6h', '24h', 'all'] as TimeRange[]).map(r => (
               <button
                 key={r}
                 onClick={() => setTimeRange(r)}
                 className={`px-2.5 py-1.5 rounded-md transition-colors ${
-                  timeRange === r ? 'bg-white text-[#005149] font-black shadow-sm' : 'text-teal-200 hover:text-white'
+                  timeRange === r ? 'bg-white text-[#112327] font-black shadow-sm' : 'text-white/75 hover:text-white'
                 }`}
               >
                 {r.toUpperCase()}
@@ -186,39 +186,39 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
 
       {/* Summary KPI Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4">
-        <div className="p-3.5 rounded-xl bg-[#003d37] border border-white/15">
-          <div className="text-[11px] text-teal-200 uppercase font-bold">Peak Power Demand</div>
+        <div className="p-3.5 rounded-xl bg-[#1a2d31] border border-white/15">
+          <div className="text-[11px] text-white/75 uppercase font-bold">Peak Power Demand</div>
           <div className="text-xl font-extrabold font-mono text-white mt-0.5">
-            {(summary.peakPower / 1000).toFixed(2)} <span className="text-xs font-semibold text-teal-200">kW</span>
+            {(summary.peakPower / 1000).toFixed(2)} <span className="text-xs font-semibold text-white/70">kW</span>
           </div>
         </div>
-        <div className="p-3.5 rounded-xl bg-[#003d37] border border-white/15">
-          <div className="text-[11px] text-teal-200 uppercase font-bold">Energy In Window</div>
+        <div className="p-3.5 rounded-xl bg-[#1a2d31] border border-white/15">
+          <div className="text-[11px] text-white/75 uppercase font-bold">Energy In Window</div>
           <div className="text-xl font-extrabold font-mono text-emerald-300 mt-0.5">
-            +{summary.energyDelta.toFixed(3)} <span className="text-xs font-semibold text-teal-200">kWh</span>
+            +{summary.energyDelta.toFixed(3)} <span className="text-xs font-semibold text-white/70">kWh</span>
           </div>
         </div>
-        <div className="p-3.5 rounded-xl bg-[#003d37] border border-white/15">
-          <div className="text-[11px] text-teal-200 uppercase font-bold">Voltage Bounds</div>
-          <div className="text-xl font-extrabold font-mono text-teal-100 mt-0.5">
-            {summary.minVoltage.toFixed(0)} - {summary.maxVoltage.toFixed(0)} <span className="text-xs font-semibold text-teal-200">V</span>
+        <div className="p-3.5 rounded-xl bg-[#1a2d31] border border-white/15">
+          <div className="text-[11px] text-white/75 uppercase font-bold">Voltage Bounds</div>
+          <div className="text-xl font-extrabold font-mono text-white mt-0.5">
+            {summary.minVoltage.toFixed(0)} - {summary.maxVoltage.toFixed(0)} <span className="text-xs font-semibold text-white/70">V</span>
           </div>
         </div>
-        <div className="p-3.5 rounded-xl bg-[#003d37] border border-white/15">
-          <div className="text-[11px] text-teal-200 uppercase font-bold">Anomaly Flags</div>
+        <div className="p-3.5 rounded-xl bg-[#1a2d31] border border-white/15">
+          <div className="text-[11px] text-white/75 uppercase font-bold">Anomaly Flags</div>
           <div className={`text-xl font-extrabold font-mono mt-0.5 ${summary.anomaliesCount > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
-            {summary.anomaliesCount} <span className="text-xs font-semibold text-teal-200">events</span>
+            {summary.anomaliesCount} <span className="text-xs font-semibold text-white/70">events</span>
           </div>
         </div>
       </div>
 
       {/* Chart Canvas */}
-      <div className="relative w-full overflow-hidden bg-[#003833] rounded-xl border border-white/15 p-2">
+      <div className="relative w-full overflow-hidden bg-[#112327] rounded-xl border border-white/15 p-2">
         {filteredLogs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-teal-200 text-xs">
-            <Clock className="w-8 h-8 mb-2 opacity-60 text-teal-300" />
+          <div className="flex flex-col items-center justify-center py-20 text-white/75 text-xs">
+            <Clock className="w-8 h-8 mb-2 opacity-60 text-white/80" />
             <p className="font-bold text-white">No telemetry recorded yet in this time window.</p>
-            <p className="mt-1 text-teal-200/70">Send telemetry from your ESP32 or the built-in Simulator to plot data.</p>
+            <p className="mt-1 text-white/60">Send telemetry from your ESP32 or the built-in Simulator to plot data.</p>
           </div>
         ) : chartData ? (
           <>
@@ -257,7 +257,8 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
                       <text
                         x={padding.left - 8}
                         y={y + 4}
-                        fill="#99f6e4"
+                        fill="#ffffff"
+                        fillOpacity="0.75"
                         fontSize="10"
                         fontFamily="monospace"
                         textAnchor="end"
@@ -268,7 +269,8 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
                       <text
                         x={padding.left - 8}
                         y={y + 4}
-                        fill="#99f6e4"
+                        fill="#ffffff"
+                        fillOpacity="0.75"
                         fontSize="10"
                         fontFamily="monospace"
                         textAnchor="end"
@@ -322,7 +324,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
                   <path
                     d={chartData.currentPath}
                     fill="none"
-                    stroke="#2dd4bf"
+                    stroke="#38bdf8"
                     strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -388,7 +390,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
                     cy={metricView === 'power_energy' ? activePoint.yPower : activePoint.yVoltage}
                     r="5"
                     fill="#ffffff"
-                    stroke="#005149"
+                    stroke="#112327"
                     strokeWidth="2"
                   />
                 </g>
@@ -400,7 +402,8 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
                   key={`time-${idx}`}
                   x={p.x}
                   y={height - 12}
-                  fill="#99f6e4"
+                  fill="#ffffff"
+                  fillOpacity="0.75"
                   fontSize="10"
                   fontFamily="monospace"
                   textAnchor={idx === 0 ? 'start' : idx === 2 ? 'end' : 'middle'}
@@ -410,19 +413,19 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
               ))}
             </svg>
 
-            {/* Floating Tooltip Card in White with Deep Teal Green Typography */}
+            {/* Floating Tooltip Card in White */}
             {activePoint && (
               <div 
-                className="absolute z-20 top-2 left-1/2 -translate-x-1/2 p-3 rounded-xl bg-white text-[#005149] border border-white shadow-2xl backdrop-blur-md flex items-center space-x-4 text-xs font-mono pointer-events-none"
+                className="absolute z-20 top-2 left-1/2 -translate-x-1/2 p-3 rounded-xl bg-white text-[#112327] border border-white shadow-2xl backdrop-blur-md flex items-center space-x-4 text-xs font-mono pointer-events-none"
               >
                 <div>
                   <span className="text-slate-500">Time:</span>
-                  <div className="font-black text-[#005149]">{activePoint.timeFormatted}</div>
+                  <div className="font-black text-[#112327]">{activePoint.timeFormatted}</div>
                 </div>
                 <div className="h-6 w-px bg-slate-200" />
                 <div>
                   <span className="text-slate-500 font-bold">Power:</span>
-                  <div className="font-black text-[#005149]">{activePoint.activePower.toFixed(0)} W</div>
+                  <div className="font-black text-[#112327]">{activePoint.activePower.toFixed(0)} W</div>
                 </div>
                 <div>
                   <span className="text-sky-600 font-bold">Energy:</span>
@@ -449,7 +452,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
 
       {/* Legend */}
       <div className="mt-4 pt-3 border-t border-white/15 flex flex-wrap items-center justify-between gap-3 text-xs">
-        <div className="flex items-center space-x-4 text-teal-100">
+        <div className="flex items-center space-x-4 text-white/90">
           {metricView === 'power_energy' ? (
             <>
               <div className="flex items-center space-x-1.5">
@@ -468,8 +471,8 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
                 <span className="text-white font-bold">Line Voltage (Volts RMS)</span>
               </div>
               <div className="flex items-center space-x-1.5">
-                <span className="w-3.5 h-1 bg-teal-300 rounded-full"></span>
-                <span className="text-teal-200 font-semibold">Load Current (Amperes)</span>
+                <span className="w-3.5 h-1 bg-sky-300 rounded-full"></span>
+                <span className="text-white/80 font-semibold">Load Current (Amperes)</span>
               </div>
             </>
           )}
@@ -479,7 +482,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
           </div>
         </div>
 
-        <div className="text-[11px] font-mono text-teal-200/70">
+        <div className="text-[11px] font-mono text-white/60">
           Showing {filteredLogs.length} time-series data points
         </div>
       </div>

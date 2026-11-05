@@ -140,37 +140,37 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[#002b27] text-white flex flex-col justify-between selection:bg-white selection:text-[#005149]">
+    <div className="min-h-screen bg-[#112327] text-white flex flex-col justify-between selection:bg-white selection:text-[#112327]">
       {/* Background Subtle Ambience */}
-      <div className="fixed inset-0 pointer-events-none opacity-20 bg-[radial-gradient(#008f82_1px,transparent_1px)] [background-size:24px_24px]"></div>
+      <div className="fixed inset-0 pointer-events-none opacity-15 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:24px_24px]"></div>
 
       {/* Top Banner Navigation */}
-      <header className="relative z-10 border-b border-white/10 bg-[#003833]/90 backdrop-blur-md px-6 py-4">
+      <header className="relative z-10 border-b border-white/10 bg-[#1a2d31]/90 backdrop-blur-md px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-white text-[#005149] flex items-center justify-center shadow-lg font-black">
-              <Zap className="w-6 h-6 fill-current text-[#005149]" />
+            <div className="w-10 h-10 rounded-xl bg-white text-[#112327] flex items-center justify-center shadow-lg font-black">
+              <Zap className="w-6 h-6 fill-current text-[#112327]" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-extrabold text-xl tracking-tight text-white">VoltPulse</span>
-                <span className="bg-white text-[#005149] font-mono text-xs px-2 py-0.5 rounded font-black tracking-wider uppercase">
+                <span className="bg-white text-[#112327] font-mono text-xs px-2 py-0.5 rounded font-black tracking-wider uppercase">
                   IoT
                 </span>
               </div>
-              <p className="text-[11px] text-teal-200/90 font-medium tracking-wide uppercase">SMART ENERGY METER</p>
+              <p className="text-[11px] text-white/75 font-medium tracking-wide uppercase">SMART ENERGY METER</p>
             </div>
           </div>
 
           <div className="flex items-center space-x-3">
             <button
               onClick={fillDemoAccount}
-              className="text-xs text-teal-200 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg font-semibold transition-colors hidden sm:flex items-center space-x-1"
+              className="text-xs text-white/80 hover:text-white bg-[#1e373e] hover:bg-[#112327] border border-white/15 px-3 py-1.5 rounded-lg font-semibold transition-colors hidden sm:flex items-center space-x-1"
             >
-              <Sparkles className="w-3.5 h-3.5 text-teal-300" />
+              <Sparkles className="w-3.5 h-3.5 text-white" />
               <span>Fill Demo Form</span>
             </button>
-            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#004741] border border-white/15 text-xs text-teal-200 font-mono">
+            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#1e373e] border border-white/15 text-xs text-white/85 font-mono">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               <span>Cloud Server Ready</span>
             </div>
@@ -184,7 +184,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
           
           {/* Left Column: Industrial Product Features Showcase */}
           <div className="lg:col-span-7 space-y-8">
-            <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs font-bold text-teal-100">
+            <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-[#1e373e] border border-white/20 text-xs font-bold text-white">
               <ShieldCheck className="w-4 h-4 text-white" />
               <span>Zero-Trust Industrial IoT Energy Platform</span>
             </div>
@@ -193,68 +193,68 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
               <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight leading-tight">
                 Secure Telemetry, Theft Detection &amp; Grid Metering
               </h1>
-              <p className="text-base text-teal-100/90 max-w-xl leading-relaxed">
+              <p className="text-base text-white/80 max-w-xl leading-relaxed">
                 Connect physical ESP32 energy meters to monitor real-time Voltage, Current, Active Power, and Reactive Power. Instantly detect bypass tampering, neutral disconnect theft, and trigger remote solid-state circuit trips.
               </p>
             </div>
 
             {/* Feature Bullets */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <div className="p-4 rounded-2xl bg-[#003c37] border border-white/15 space-y-2 shadow-sm">
-                <div className="w-8 h-8 rounded-lg bg-white text-[#005149] flex items-center justify-center font-bold">
-                  <Activity className="w-4 h-4 text-[#005149]" />
+              <div className="p-4 rounded-2xl bg-[#1a2d31] border border-white/15 space-y-2 shadow-sm">
+                <div className="w-8 h-8 rounded-lg bg-white text-[#112327] flex items-center justify-center font-bold">
+                  <Activity className="w-4 h-4 text-[#112327]" />
                 </div>
                 <h4 className="text-sm font-bold text-white">Sub-Second Telemetry</h4>
-                <p className="text-xs text-teal-200 leading-normal">
+                <p className="text-xs text-white/75 leading-normal">
                   Live streaming of Energy (kWh), Active Power (W), Reactive (VAR), Voltage (V), and Current (A).
                 </p>
               </div>
 
-              <div className="p-4 rounded-2xl bg-[#003c37] border border-white/15 space-y-2 shadow-sm">
-                <div className="w-8 h-8 rounded-lg bg-white text-[#005149] flex items-center justify-center font-bold">
-                  <ShieldCheck className="w-4 h-4 text-[#005149]" />
+              <div className="p-4 rounded-2xl bg-[#1a2d31] border border-white/15 space-y-2 shadow-sm">
+                <div className="w-8 h-8 rounded-lg bg-white text-[#112327] flex items-center justify-center font-bold">
+                  <ShieldCheck className="w-4 h-4 text-[#112327]" />
                 </div>
                 <h4 className="text-sm font-bold text-white">Anti-Theft AI Shield</h4>
-                <p className="text-xs text-teal-200 leading-normal">
+                <p className="text-xs text-white/75 leading-normal">
                   Detects current bypass, magnetic coil tampering, and automated email alerts to station operators.
                 </p>
               </div>
 
-              <div className="p-4 rounded-2xl bg-[#003c37] border border-white/15 space-y-2 shadow-sm">
-                <div className="w-8 h-8 rounded-lg bg-white text-[#005149] flex items-center justify-center font-bold">
-                  <Cpu className="w-4 h-4 text-[#005149]" />
+              <div className="p-4 rounded-2xl bg-[#1a2d31] border border-white/15 space-y-2 shadow-sm">
+                <div className="w-8 h-8 rounded-lg bg-white text-[#112327] flex items-center justify-center font-bold">
+                  <Cpu className="w-4 h-4 text-[#112327]" />
                 </div>
                 <h4 className="text-sm font-bold text-white">ESP32 Firmware Ready</h4>
-                <p className="text-xs text-teal-200 leading-normal">
+                <p className="text-xs text-white/75 leading-normal">
                   Auto-generate hardware credentials, API keys, and copyable C++ sketch code for your microcontroller.
                 </p>
               </div>
 
-              <div className="p-4 rounded-2xl bg-[#003c37] border border-white/15 space-y-2 shadow-sm">
-                <div className="w-8 h-8 rounded-lg bg-white text-[#005149] flex items-center justify-center font-bold">
-                  <Radio className="w-4 h-4 text-[#005149]" />
+              <div className="p-4 rounded-2xl bg-[#1a2d31] border border-white/15 space-y-2 shadow-sm">
+                <div className="w-8 h-8 rounded-lg bg-white text-[#112327] flex items-center justify-center font-bold">
+                  <Radio className="w-4 h-4 text-[#112327]" />
                 </div>
                 <h4 className="text-sm font-bold text-white">Remote Relay Breaker</h4>
-                <p className="text-xs text-teal-200 leading-normal">
+                <p className="text-xs text-white/75 leading-normal">
                   Emergency power isolation and load cut-off commands sent over cloud websocket/REST API.
                 </p>
               </div>
             </div>
 
             {/* Testimonial / Telemetry specs badge */}
-            <div className="flex items-center space-x-4 p-3.5 rounded-xl bg-white/5 border border-white/10 text-xs text-teal-200">
+            <div className="flex items-center space-x-4 p-3.5 rounded-xl bg-[#1a2d31] border border-white/10 text-xs text-white/80">
               <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
               <span>Full compliance with standard DIN rail smart meter hardware and cloud database encryption.</span>
             </div>
           </div>
 
-          {/* Right Column: Authentication Card in Teal & White Theme */}
+          {/* Right Column: Authentication Card */}
           <div className="lg:col-span-5 w-full">
-            <div className="w-full rounded-3xl bg-[#00423c] border-2 border-white/20 shadow-2xl p-6 sm:p-8 backdrop-blur-md">
+            <div className="w-full rounded-3xl bg-[#1e373e] border-2 border-white/20 shadow-2xl p-6 sm:p-8 backdrop-blur-md">
               
               {/* Card Header & Tab Switcher */}
               <div className="space-y-4">
-                <div className="flex rounded-xl bg-[#00302c] p-1 border border-white/15">
+                <div className="flex rounded-xl bg-[#112327] p-1 border border-white/15">
                   <button
                     type="button"
                     onClick={() => {
@@ -263,8 +263,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
                     }}
                     className={`flex-1 py-2.5 rounded-lg text-xs font-extrabold transition-all text-center ${
                       !isSignUp
-                        ? 'bg-white text-[#005149] shadow-md'
-                        : 'text-teal-200 hover:text-white'
+                        ? 'bg-white text-[#112327] shadow-md'
+                        : 'text-white/75 hover:text-white'
                     }`}
                   >
                     Sign In
@@ -277,8 +277,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
                     }}
                     className={`flex-1 py-2.5 rounded-lg text-xs font-extrabold transition-all text-center ${
                       isSignUp
-                        ? 'bg-white text-[#005149] shadow-md'
-                        : 'text-teal-200 hover:text-white'
+                        ? 'bg-white text-[#112327] shadow-md'
+                        : 'text-white/75 hover:text-white'
                     }`}
                   >
                     Create Account
@@ -289,7 +289,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
                   <h3 className="text-xl font-bold text-white">
                     {isSignUp ? 'Create your Operator Account' : 'Welcome Back, Operator'}
                   </h3>
-                  <p className="text-xs text-teal-200 mt-1">
+                  <p className="text-xs text-white/75 mt-1">
                     {isSignUp 
                       ? 'Sign up to configure and link your ESP32 energy meter to the cloud'
                       : 'Authenticate to access your live energy meters and telemetry logs'}
@@ -311,7 +311,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
                   type="button"
                   onClick={handleGoogleSignIn}
                   disabled={loading}
-                  className="w-full flex items-center justify-center space-x-3 py-3 px-4 rounded-xl bg-white hover:bg-teal-50 text-[#005149] font-black text-sm transition-all shadow-md active:scale-[0.98] disabled:opacity-50"
+                  className="w-full flex items-center justify-center space-x-3 py-3 px-4 rounded-xl bg-white hover:bg-white/90 text-[#112327] font-black text-sm transition-all shadow-md active:scale-[0.98] disabled:opacity-50"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -326,7 +326,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
               {/* Divider */}
               <div className="relative my-6 flex items-center justify-center">
                 <div className="border-t border-white/15 w-full"></div>
-                <span className="absolute bg-[#00423c] px-3 text-[11px] font-bold text-teal-200 uppercase tracking-wider">
+                <span className="absolute bg-[#1e373e] px-3 text-[11px] font-bold text-white/75 uppercase tracking-wider">
                   or email &amp; password
                 </span>
               </div>
@@ -335,17 +335,17 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
               <form onSubmit={handleSubmit} className="space-y-4">
                 {isSignUp && (
                   <div>
-                    <label className="block text-xs font-bold text-teal-100 uppercase tracking-wide mb-1.5">
+                    <label className="block text-xs font-bold text-white/90 uppercase tracking-wide mb-1.5">
                       Operator / Facility Name
                     </label>
                     <div className="relative">
-                      <UserIcon className="w-4 h-4 text-teal-300 absolute left-3.5 top-3.5 pointer-events-none" />
+                      <UserIcon className="w-4 h-4 text-white/70 absolute left-3.5 top-3.5 pointer-events-none" />
                       <input
                         type="text"
                         value={displayName}
                         onChange={(e) => setDisplayName(e.target.value)}
                         placeholder="e.g. Samuel Adekunle"
-                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#00342f] border border-white/20 text-white placeholder-teal-300/50 text-sm focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-all"
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#112327] border border-white/20 text-white placeholder-white/40 text-sm focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-all"
                         required={isSignUp}
                       />
                     </div>
@@ -353,40 +353,40 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
                 )}
 
                 <div>
-                  <label className="block text-xs font-bold text-teal-100 uppercase tracking-wide mb-1.5">
+                  <label className="block text-xs font-bold text-white/90 uppercase tracking-wide mb-1.5">
                     Email Address
                   </label>
                   <div className="relative">
-                    <Mail className="w-4 h-4 text-teal-300 absolute left-3.5 top-3.5 pointer-events-none" />
+                    <Mail className="w-4 h-4 text-white/70 absolute left-3.5 top-3.5 pointer-events-none" />
                     <input
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="operator@voltenergy.io"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#00342f] border border-white/20 text-white placeholder-teal-300/50 text-sm focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-all"
+                      className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#112327] border border-white/20 text-white placeholder-white/40 text-sm focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-all"
                       required
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-teal-100 uppercase tracking-wide mb-1.5">
+                  <label className="block text-xs font-bold text-white/90 uppercase tracking-wide mb-1.5">
                     Password
                   </label>
                   <div className="relative">
-                    <Lock className="w-4 h-4 text-teal-300 absolute left-3.5 top-3.5 pointer-events-none" />
+                    <Lock className="w-4 h-4 text-white/70 absolute left-3.5 top-3.5 pointer-events-none" />
                     <input
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full pl-10 pr-11 py-2.5 rounded-xl bg-[#00342f] border border-white/20 text-white placeholder-teal-300/50 text-sm focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-all"
+                      className="w-full pl-10 pr-11 py-2.5 rounded-xl bg-[#112327] border border-white/20 text-white placeholder-white/40 text-sm focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-all"
                       required
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3.5 top-3 text-teal-300 hover:text-white transition-colors"
+                      className="absolute right-3.5 top-3 text-white/70 hover:text-white transition-colors"
                     >
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -395,17 +395,17 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
 
                 {isSignUp && (
                   <div>
-                    <label className="block text-xs font-bold text-teal-100 uppercase tracking-wide mb-1.5">
+                    <label className="block text-xs font-bold text-white/90 uppercase tracking-wide mb-1.5">
                       Confirm Password
                     </label>
                     <div className="relative">
-                      <Lock className="w-4 h-4 text-teal-300 absolute left-3.5 top-3.5 pointer-events-none" />
+                      <Lock className="w-4 h-4 text-white/70 absolute left-3.5 top-3.5 pointer-events-none" />
                       <input
                         type={showPassword ? 'text' : 'password'}
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
                         placeholder="••••••••"
-                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#00342f] border border-white/20 text-white placeholder-teal-300/50 text-sm focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-all"
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#112327] border border-white/20 text-white placeholder-white/40 text-sm focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-all"
                         required={isSignUp}
                       />
                     </div>
@@ -415,23 +415,23 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full mt-2 flex items-center justify-center space-x-2 py-3 px-4 rounded-xl bg-white hover:bg-teal-50 text-[#005149] font-black text-sm transition-all shadow-lg active:scale-[0.98] disabled:opacity-50"
+                  className="w-full mt-2 flex items-center justify-center space-x-2 py-3 px-4 rounded-xl bg-white hover:bg-white/90 text-[#112327] font-black text-sm transition-all shadow-lg active:scale-[0.98] disabled:opacity-50"
                 >
                   <span>{loading ? 'Authenticating...' : isSignUp ? 'Sign Up & Configure Meter' : 'Sign In to Dashboard'}</span>
-                  <ArrowRight className="w-4 h-4 text-[#005149]" />
+                  <ArrowRight className="w-4 h-4 text-[#112327]" />
                 </button>
               </form>
 
               {/* Direct Quick Demo Mode for immediate evaluation */}
               <div className="mt-6 pt-5 border-t border-white/10 text-center space-y-2">
-                <p className="text-[11px] text-teal-200">Evaluating or running a rapid hardware field test?</p>
+                <p className="text-[11px] text-white/75">Evaluating or running a rapid hardware field test?</p>
                 <button
                   type="button"
                   onClick={handleTestDrive}
                   disabled={loading}
-                  className="inline-flex items-center space-x-1.5 text-xs text-white hover:text-teal-100 font-bold underline underline-offset-4 transition-colors"
+                  className="inline-flex items-center space-x-1.5 text-xs text-white hover:text-white/80 font-bold underline underline-offset-4 transition-colors"
                 >
-                  <Cpu className="w-3.5 h-3.5 text-teal-200" />
+                  <Cpu className="w-3.5 h-3.5 text-white" />
                   <span>Enter Quick Test-Drive Demo Mode</span>
                 </button>
               </div>
@@ -443,7 +443,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 border-t border-white/10 bg-[#00221f] py-4 text-center text-xs text-teal-300 font-mono">
+      <footer className="relative z-10 border-t border-white/10 bg-[#1a2d31] py-4 text-center text-xs text-white/75 font-mono">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div>VoltPulse IoT • Hardware-to-Cloud Smart Grid Protection Platform</div>
           <div>Protected by Firebase Authentication &amp; TLS 1.3 Encryption</div>

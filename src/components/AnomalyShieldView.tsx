@@ -31,31 +31,31 @@ export const AnomalyShieldView: React.FC<AnomalyShieldViewProps> = ({
       <div className={`p-6 rounded-2xl border transition-all text-white ${
         meter.hasAnomaly
           ? 'bg-rose-950/80 border-rose-400 shadow-xl'
-          : 'bg-[#005149] border-white/20 shadow-lg'
+          : 'bg-[#1e373e] border-white/20 shadow-lg'
       }`}>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
           <div className="flex items-start space-x-4">
             <div className={`p-3.5 rounded-2xl border mt-1 ${
               meter.hasAnomaly
                 ? 'bg-rose-500/20 border-rose-400 text-rose-300'
-                : 'bg-white text-[#005149] border-white/30 shadow-md'
+                : 'bg-white text-[#112327] border-white/30 shadow-md'
             }`}>
               {meter.hasAnomaly ? (
                 <ShieldAlert className="w-8 h-8 animate-bounce text-rose-300" />
               ) : (
-                <ShieldCheck className="w-8 h-8 text-[#005149]" />
+                <ShieldCheck className="w-8 h-8 text-[#112327]" />
               )}
             </div>
 
             <div>
               <div className="flex items-center space-x-2">
-                <span className="text-xs font-mono font-bold uppercase tracking-wider text-teal-200">
+                <span className="text-xs font-mono font-bold uppercase tracking-wider text-white/75">
                   VoltPulse Anti-Theft &amp; Electrical Anomaly Engine
                 </span>
                 <span className={`text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full border ${
                   meter.hasAnomaly
                     ? 'bg-rose-500 text-white border-rose-400 animate-pulse'
-                    : 'bg-white text-[#005149] border-white font-extrabold'
+                    : 'bg-white text-[#112327] border-white font-extrabold'
                 }`}>
                   {meter.hasAnomaly ? 'ACTIVE THREAT DETECTED' : 'GRID INTEGRITY SECURE'}
                 </span>
@@ -67,7 +67,7 @@ export const AnomalyShieldView: React.FC<AnomalyShieldViewProps> = ({
                   : 'Meter Line & Telemetry Integrity Verified'}
               </h2>
 
-              <p className="text-xs sm:text-sm text-teal-100 mt-1.5 max-w-2xl leading-relaxed">
+              <p className="text-xs sm:text-sm text-white/80 mt-1.5 max-w-2xl leading-relaxed">
                 {meter.hasAnomaly
                   ? meter.anomalyDescription
                   : 'Real-time telemetry algorithms are continuously analyzing voltage-current phase vectors, apparent vs active power ratios, and line resistance drops to detect illegal bypassing, shunts, or neutral tampering.'}
@@ -92,82 +92,82 @@ export const AnomalyShieldView: React.FC<AnomalyShieldViewProps> = ({
 
       {/* Forensic Detection Vector Guide Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-5 rounded-2xl bg-[#005149] border border-white/20 shadow-md text-white hover:border-white/40 transition-all">
+        <div className="p-5 rounded-2xl bg-[#1e373e] border border-white/20 shadow-md text-white hover:border-white/40 transition-all">
           <div className="flex items-center space-x-2 text-rose-300 font-extrabold text-xs uppercase tracking-wide">
             <ShieldAlert className="w-4 h-4 text-rose-300" />
             <span className="text-white">Over-voltage Surge</span>
           </div>
-          <p className="text-xs text-teal-100 mt-2 leading-relaxed">
+          <p className="text-xs text-white/80 mt-2 leading-relaxed">
             Flags dangerous overvoltage conditions: Line voltage reaching &ge; 250V is classified Critical Hazard; voltages from 242V to 250V trigger high-voltage Warning.
           </p>
-          <div className="mt-3 text-[11px] font-mono text-rose-200 bg-[#003833] p-2 rounded-lg border border-white/15 font-bold">
+          <div className="mt-3 text-[11px] font-mono text-rose-200 bg-[#112327] p-2 rounded-lg border border-white/15 font-bold">
             &ge; 250V: Critical | 242-250V: Warning
           </div>
         </div>
 
-        <div className="p-5 rounded-2xl bg-[#005149] border border-white/20 shadow-md text-white hover:border-white/40 transition-all">
+        <div className="p-5 rounded-2xl bg-[#1e373e] border border-white/20 shadow-md text-white hover:border-white/40 transition-all">
           <div className="flex items-center space-x-2 text-amber-300 font-extrabold text-xs uppercase tracking-wide">
             <AlertTriangle className="w-4 h-4 text-amber-300" />
             <span className="text-white">Under-voltage Sag</span>
           </div>
-          <p className="text-xs text-teal-100 mt-2 leading-relaxed">
+          <p className="text-xs text-white/80 mt-2 leading-relaxed">
             Severe line voltage collapse below 180V triggers Critical Sag hazard; line voltages sagged in the 180V - 207V band trigger brownout Warning.
           </p>
-          <div className="mt-3 text-[11px] font-mono text-amber-300 bg-[#003833] p-2 rounded-lg border border-white/15 font-bold">
+          <div className="mt-3 text-[11px] font-mono text-amber-300 bg-[#112327] p-2 rounded-lg border border-white/15 font-bold">
             &lt; 180V: Critical | 180-207V: Warning
           </div>
         </div>
 
-        <div className="p-5 rounded-2xl bg-[#005149] border border-white/20 shadow-md text-white hover:border-white/40 transition-all">
-          <div className="flex items-center space-x-2 text-teal-200 font-extrabold text-xs uppercase tracking-wide">
+        <div className="p-5 rounded-2xl bg-[#1e373e] border border-white/20 shadow-md text-white hover:border-white/40 transition-all">
+          <div className="flex items-center space-x-2 text-white/80 font-extrabold text-xs uppercase tracking-wide">
             <Zap className="w-4 h-4 text-white" />
             <span className="text-white">Current Shunt Bypass</span>
           </div>
-          <p className="text-xs text-teal-100 mt-2 leading-relaxed">
+          <p className="text-xs text-white/80 mt-2 leading-relaxed">
             Flags when grid voltage is energized (~230V) but reported current collapses to 0.00A while historical usage suggests active branch circuits.
           </p>
-          <div className="mt-3 text-[11px] font-mono text-white bg-[#003833] p-2 rounded-lg border border-white/15 font-bold">
+          <div className="mt-3 text-[11px] font-mono text-white bg-[#112327] p-2 rounded-lg border border-white/15 font-bold">
             Trigger: V &gt; 200V &amp; ΔP &gt; 1200W
           </div>
         </div>
 
-        <div className="p-5 rounded-2xl bg-[#005149] border border-white/20 shadow-md text-white hover:border-white/40 transition-all">
-          <div className="flex items-center space-x-2 text-teal-200 font-extrabold text-xs uppercase tracking-wide">
+        <div className="p-5 rounded-2xl bg-[#1e373e] border border-white/20 shadow-md text-white hover:border-white/40 transition-all">
+          <div className="flex items-center space-x-2 text-white/80 font-extrabold text-xs uppercase tracking-wide">
             <Cpu className="w-4 h-4 text-white" />
             <span className="text-white">Unmetered Bypass</span>
           </div>
-          <p className="text-xs text-teal-100 mt-2 leading-relaxed">
+          <p className="text-xs text-white/80 mt-2 leading-relaxed">
             High apparent power (S &gt; 800VA) with active power &lt; 40W and distorted PF, or current flowing while commanded relay is in OFF state.
           </p>
-          <div className="mt-3 text-[11px] font-mono text-white bg-[#003833] p-2 rounded-lg border border-white/15 font-bold">
+          <div className="mt-3 text-[11px] font-mono text-white bg-[#112327] p-2 rounded-lg border border-white/15 font-bold">
             Trigger: S &gt; 800VA &amp; P &lt; 40W
           </div>
         </div>
       </div>
 
       {/* Incident Log Table */}
-      <div className="rounded-2xl bg-[#005149] border border-white/20 p-5 shadow-lg text-white">
+      <div className="rounded-2xl bg-[#1e373e] border border-white/20 p-5 shadow-lg text-white">
         <div className="flex items-center justify-between pb-4 border-b border-white/15">
           <div>
             <h3 className="text-base font-bold text-white flex items-center space-x-2">
-              <FileText className="w-4 h-4 text-teal-200" />
+              <FileText className="w-4 h-4 text-white" />
               <span>Anomaly Incident Log &amp; Audit Trail</span>
             </h3>
-            <p className="text-xs text-teal-200 mt-0.5">
+            <p className="text-xs text-white/75 mt-0.5">
               Historical record of electrical anomalies and theft warnings for Meter {meter.meterId}
             </p>
           </div>
 
-          <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-[#003833] text-white border border-white/20">
+          <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-[#112327] text-white border border-white/20">
             {alerts.length} Total Incidents
           </span>
         </div>
 
         {alerts.length === 0 ? (
-          <div className="py-12 text-center text-xs text-teal-200">
+          <div className="py-12 text-center text-xs text-white/75">
             <ShieldCheck className="w-8 h-8 mx-auto text-emerald-300 mb-2" />
             <p className="font-bold text-white">No anomaly incidents recorded.</p>
-            <p className="mt-0.5 text-teal-200/80">All telemetry within normal limits. You can test the detection module in the ESP32 Workbench tab!</p>
+            <p className="mt-0.5 text-white/70">All telemetry within normal limits. You can test the detection module in the ESP32 Workbench tab!</p>
           </div>
         ) : (
           <div className="divide-y divide-white/10 mt-2">
@@ -178,8 +178,8 @@ export const AnomalyShieldView: React.FC<AnomalyShieldViewProps> = ({
                     alert.severity === 'CRITICAL'
                       ? 'bg-rose-500 text-white'
                       : alert.severity === 'HIGH'
-                      ? 'bg-amber-400 text-[#003833]'
-                      : 'bg-white text-[#005149]'
+                      ? 'bg-amber-400 text-[#112327]'
+                      : 'bg-white text-[#112327]'
                   }`}>
                     <AlertTriangle className="w-4 h-4" />
                   </div>
@@ -189,13 +189,13 @@ export const AnomalyShieldView: React.FC<AnomalyShieldViewProps> = ({
                       <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
                         alert.status === 'ACTIVE'
                           ? 'bg-rose-500 text-white border-rose-400'
-                          : 'bg-emerald-400 text-[#003833] border-emerald-300'
+                          : 'bg-emerald-400 text-[#112327] border-emerald-300'
                       }`}>
                         {alert.status}
                       </span>
                     </div>
-                    <p className="text-xs text-teal-100 mt-1 max-w-2xl leading-relaxed">{alert.description}</p>
-                    <div className="flex items-center space-x-3 mt-1.5 text-[11px] font-mono text-teal-200">
+                    <p className="text-xs text-white/85 mt-1 max-w-2xl leading-relaxed">{alert.description}</p>
+                    <div className="flex items-center space-x-3 mt-1.5 text-[11px] font-mono text-white/70">
                       <span>Logged: {new Date(alert.createdAt).toLocaleString()}</span>
                       {alert.telemetrySnapshot && (
                         <span>
@@ -210,7 +210,7 @@ export const AnomalyShieldView: React.FC<AnomalyShieldViewProps> = ({
                   <button
                     onClick={() => onResolveAlert(alert.id)}
                     type="button"
-                    className="self-start sm:self-center flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-teal-50 text-[#005149] text-xs font-black transition-colors shadow-md"
+                    className="self-start sm:self-center flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-white/90 text-[#112327] text-xs font-black transition-colors shadow-md"
                   >
                     <CheckCircle className="w-3.5 h-3.5" />
                     <span>Resolve Alert</span>

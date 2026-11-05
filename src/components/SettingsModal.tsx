@@ -1,14 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, 
-  Settings, 
   Bell, 
   Mail, 
   ShieldAlert, 
-  AlertTriangle, 
   Check, 
   Flame, 
-  Activity, 
   Zap, 
   WifiOff, 
   Send, 
@@ -43,7 +40,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     updatedAt: new Date().toISOString(),
   });
 
-  const [isLoading, setIsLoading] = useState(false);
+  const [, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [testSent, setTestSent] = useState(false);
@@ -157,22 +154,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
-      <div className="w-full max-w-xl rounded-2xl bg-[#00423c] border border-white/20 shadow-2xl p-6 text-white max-h-[90vh] overflow-y-auto">
+      <div className="w-full max-w-xl rounded-2xl bg-[#1a2d31] border border-white/20 shadow-2xl p-6 text-white max-h-[90vh] overflow-y-auto">
         
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-white/15">
           <div className="flex items-center space-x-2.5">
-            <div className="p-2.5 rounded-xl bg-white text-[#005149] shadow-md">
-              <Bell className="w-5 h-5 text-[#005149]" />
+            <div className="p-2.5 rounded-xl bg-white text-[#112327] shadow-md">
+              <Bell className="w-5 h-5 text-[#112327]" />
             </div>
             <div>
               <h3 className="text-base font-bold text-white">Alerts &amp; Notification Settings</h3>
-              <p className="text-xs text-teal-200">Configure real-time email dispatch for critical grid anomalies</p>
+              <p className="text-xs text-white/75">Configure real-time email dispatch for critical grid anomalies</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-teal-200 hover:text-white hover:bg-white/10 transition-colors"
+            className="p-1 rounded-lg text-white/75 hover:text-white hover:bg-[#1e373e] transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -194,10 +191,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <form onSubmit={handleSave} className="space-y-5 my-4">
           
           {/* Master Email Alerts Toggle */}
-          <div className="p-4 rounded-xl bg-[#00342f] border border-white/20 flex items-center justify-between">
+          <div className="p-4 rounded-xl bg-[#1e373e] border border-white/20 flex items-center justify-between">
             <div className="flex items-start space-x-3">
               <div className={`p-2 rounded-lg mt-0.5 ${
-                preferences.emailAlertsEnabled ? 'bg-white text-[#005149]' : 'bg-white/10 text-teal-300'
+                preferences.emailAlertsEnabled ? 'bg-white text-[#112327]' : 'bg-[#112327] text-white/70'
               }`}>
                 <Mail className="w-5 h-5" />
               </div>
@@ -205,12 +202,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="text-sm font-bold text-white flex items-center space-x-2">
                   <span>Dispatch Email Alerts</span>
                   <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
-                    preferences.emailAlertsEnabled ? 'bg-emerald-400 text-[#003833]' : 'bg-white/10 text-teal-300'
+                    preferences.emailAlertsEnabled ? 'bg-emerald-400 text-[#112327]' : 'bg-[#112327] text-white/70'
                   }`}>
                     {preferences.emailAlertsEnabled ? 'ACTIVE & ARMED' : 'MUTED'}
                   </span>
                 </div>
-                <p className="text-xs text-teal-200 mt-0.5 leading-relaxed">
+                <p className="text-xs text-white/75 mt-0.5 leading-relaxed">
                   Sends automated instant warning emails when the detection engine flags theft, bypasses, or overcurrent hazards.
                 </p>
               </div>
@@ -221,11 +218,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               type="button"
               onClick={() => handleToggle('emailAlertsEnabled')}
               className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                preferences.emailAlertsEnabled ? 'bg-emerald-400' : 'bg-white/20'
+                preferences.emailAlertsEnabled ? 'bg-emerald-400' : 'bg-[#112327]'
               }`}
             >
               <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-[#003833] shadow ring-0 transition duration-200 ease-in-out ${
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                   preferences.emailAlertsEnabled ? 'translate-x-5' : 'translate-x-0'
                 }`}
               />
@@ -234,8 +231,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* Destination Email Address */}
           <div>
-            <label className="text-xs font-bold text-teal-100 uppercase tracking-wide flex items-center space-x-1.5 mb-1.5">
-              <Mail className="w-3.5 h-3.5 text-teal-300" />
+            <label className="text-xs font-bold text-white/90 uppercase tracking-wide flex items-center space-x-1.5 mb-1.5">
+              <Mail className="w-3.5 h-3.5 text-white" />
               <span>Recipient Email Address for Alerts</span>
             </label>
             <input
@@ -243,17 +240,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               value={preferences.alertEmail}
               onChange={e => setPreferences(prev => ({ ...prev, alertEmail: e.target.value }))}
               placeholder="e.g. technician@powergrid.com"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-[#00342f] border border-white/20 text-white font-mono text-sm focus:outline-none focus:border-white"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-[#112327] border border-white/20 text-white font-mono text-sm focus:outline-none focus:border-white"
               required
             />
-            <span className="text-[10px] text-teal-200 mt-1 block">
+            <span className="text-[10px] text-white/70 mt-1 block">
               Defaulted to your authenticated Google account; editable for on-duty technicians or emergency response teams.
             </span>
           </div>
 
           {/* Minimum Severity Filter */}
           <div>
-            <label className="text-xs font-bold text-teal-100 uppercase tracking-wide block mb-1.5">
+            <label className="text-xs font-bold text-white/90 uppercase tracking-wide block mb-1.5">
               Minimum Anomaly Severity Threshold
             </label>
             <div className="grid grid-cols-4 gap-2">
@@ -264,8 +261,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onClick={() => setPreferences(prev => ({ ...prev, minimumSeverity: sev }))}
                   className={`py-2 px-1 rounded-xl text-xs font-mono font-bold transition-all border ${
                     preferences.minimumSeverity === sev
-                      ? 'bg-white text-[#005149] border-white shadow-sm'
-                      : 'bg-[#00342f] text-teal-200 border-white/10 hover:border-white/30'
+                      ? 'bg-white text-[#112327] border-white shadow-sm'
+                      : 'bg-[#112327] text-white/75 border-white/15 hover:border-white/30'
                   }`}
                 >
                   {sev}
@@ -276,20 +273,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* Granular Anomaly Event Categories */}
           <div className="space-y-2 pt-2 border-t border-white/15">
-            <label className="text-xs font-bold text-teal-100 uppercase tracking-wide block">
+            <label className="text-xs font-bold text-white/90 uppercase tracking-wide block">
               Trigger Alerts for These Electrical Events:
             </label>
 
             {/* 1. Critical Theft & Shunts */}
             <div 
               onClick={() => handleToggle('notifyCriticalTheft')}
-              className="p-3 rounded-xl bg-[#003833] border border-white/15 hover:border-white/30 flex items-center justify-between cursor-pointer transition-colors"
+              className="p-3 rounded-xl bg-[#1e373e] border border-white/15 hover:border-white/30 flex items-center justify-between cursor-pointer transition-colors"
             >
               <div className="flex items-center space-x-3">
                 <ShieldAlert className="w-4 h-4 text-rose-400" />
                 <div>
                   <div className="text-xs font-bold text-white">Current Shunt &amp; Energy Theft Bypass</div>
-                  <div className="text-[11px] text-teal-200">Abrupt load collapse with line energized; physical jumper tap</div>
+                  <div className="text-[11px] text-white/75">Abrupt load collapse with line energized; physical jumper tap</div>
                 </div>
               </div>
               <input 
@@ -303,13 +300,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* 2. Overcurrent / Surge */}
             <div 
               onClick={() => handleToggle('notifyOvercurrentSurge')}
-              className="p-3 rounded-xl bg-[#003833] border border-white/15 hover:border-white/30 flex items-center justify-between cursor-pointer transition-colors"
+              className="p-3 rounded-xl bg-[#1e373e] border border-white/15 hover:border-white/30 flex items-center justify-between cursor-pointer transition-colors"
             >
               <div className="flex items-center space-x-3">
                 <Flame className="w-4 h-4 text-amber-300" />
                 <div>
                   <div className="text-xs font-bold text-white">Overcurrent Spike &amp; Breaker Overload</div>
-                  <div className="text-[11px] text-teal-200">Continuous load exceeding breaker rating (&gt; 42A / 9.5 kW)</div>
+                  <div className="text-[11px] text-white/75">Continuous load exceeding breaker rating (&gt; 42A / 9.5 kW)</div>
                 </div>
               </div>
               <input 
@@ -323,13 +320,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* 3. Voltage Sag */}
             <div 
               onClick={() => handleToggle('notifyVoltageSag')}
-              className="p-3 rounded-xl bg-[#003833] border border-white/15 hover:border-white/30 flex items-center justify-between cursor-pointer transition-colors"
+              className="p-3 rounded-xl bg-[#1e373e] border border-white/15 hover:border-white/30 flex items-center justify-between cursor-pointer transition-colors"
             >
               <div className="flex items-center space-x-3">
                 <Zap className="w-4 h-4 text-cyan-300" />
                 <div>
                   <div className="text-xs font-bold text-white">Severe Voltage Sag Under High Draw</div>
-                  <div className="text-[11px] text-teal-200">Line voltage drops below 190V under high current (unmetered tap)</div>
+                  <div className="text-[11px] text-white/75">Line voltage drops below 190V under high current (unmetered tap)</div>
                 </div>
               </div>
               <input 
@@ -343,13 +340,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* 4. Offline Heartbeat */}
             <div 
               onClick={() => handleToggle('notifyOfflineHeartbeat')}
-              className="p-3 rounded-xl bg-[#003833] border border-white/15 hover:border-white/30 flex items-center justify-between cursor-pointer transition-colors"
+              className="p-3 rounded-xl bg-[#1e373e] border border-white/15 hover:border-white/30 flex items-center justify-between cursor-pointer transition-colors"
             >
               <div className="flex items-center space-x-3">
-                <WifiOff className="w-4 h-4 text-teal-300" />
+                <WifiOff className="w-4 h-4 text-white/80" />
                 <div>
                   <div className="text-xs font-bold text-white">ESP32 Offline Disconnection Timeout</div>
-                  <div className="text-[11px] text-teal-200">Meter ceases heartbeat telemetry for over 60 seconds</div>
+                  <div className="text-[11px] text-white/75">Meter ceases heartbeat telemetry for over 60 seconds</div>
                 </div>
               </div>
               <input 
@@ -367,7 +364,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               type="button"
               onClick={handleSendTestAlert}
               disabled={testSent}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#003833] hover:bg-[#002f2b] text-teal-200 text-xs font-bold border border-white/20 transition-colors"
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#1e373e] hover:bg-[#112327] text-white text-xs font-bold border border-white/20 transition-colors"
             >
               <Send className={`w-3.5 h-3.5 ${testSent ? 'animate-bounce text-emerald-300' : ''}`} />
               <span>{testSent ? 'Test Alert Dispatched!' : 'Send Test Warning Email'}</span>
@@ -385,16 +382,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors"
+              className="px-4 py-2 rounded-xl bg-[#1e373e] hover:bg-[#112327] border border-white/15 text-white text-xs font-bold transition-colors"
             >
               Close
             </button>
             <button
               type="submit"
               disabled={isSaving}
-              className="flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-white hover:bg-teal-50 text-[#005149] text-xs font-black transition-all shadow-md active:scale-95 disabled:opacity-50"
+              className="flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-white hover:bg-white/90 text-[#112327] text-xs font-black transition-all shadow-md active:scale-95 disabled:opacity-50"
             >
-              <Check className="w-4 h-4 text-[#005149]" />
+              <Check className="w-4 h-4 text-[#112327]" />
               <span>{isSaving ? 'Saving to Firebase...' : 'Save Preferences'}</span>
             </button>
           </div>

@@ -180,8 +180,8 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
           onClick={() => setActiveSubTab('simulator')}
           className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
             activeSubTab === 'simulator'
-              ? 'bg-white text-[#005149] font-extrabold shadow-md'
-              : 'text-teal-200 hover:text-white hover:bg-white/10'
+              ? 'bg-white text-[#112327] font-extrabold shadow-md'
+              : 'text-white/75 hover:text-white hover:bg-[#1e373e]'
           }`}
         >
           <Sliders className="w-4 h-4" />
@@ -192,8 +192,8 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
           onClick={() => setActiveSubTab('firmware')}
           className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
             activeSubTab === 'firmware'
-              ? 'bg-white text-[#005149] font-extrabold shadow-md'
-              : 'text-teal-200 hover:text-white hover:bg-white/10'
+              ? 'bg-white text-[#112327] font-extrabold shadow-md'
+              : 'text-white/75 hover:text-white hover:bg-[#1e373e]'
           }`}
         >
           <Code2 className="w-4 h-4" />
@@ -205,45 +205,45 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           
           {/* Left: Simulation Controls & Presets */}
-          <div className="lg:col-span-7 rounded-2xl bg-[#005149] border border-white/20 p-5 shadow-lg text-white">
+          <div className="lg:col-span-7 rounded-2xl bg-[#1e373e] border border-white/20 p-5 shadow-lg text-white">
             <div className="flex items-center justify-between pb-3 border-b border-white/15">
               <div>
                 <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                  <Cpu className="w-4 h-4 text-teal-200" />
+                  <Cpu className="w-4 h-4 text-white" />
                   <span>Hardware Telemetry Test Bench</span>
                 </h3>
-                <p className="text-xs text-teal-200 mt-0.5">
+                <p className="text-xs text-white/75 mt-0.5">
                   Inject live electrical signals into the real backend to test anomaly alerts
                 </p>
               </div>
 
-              <span className="text-[11px] font-mono text-white font-extrabold px-2.5 py-0.5 rounded bg-[#003833] border border-white/20">
+              <span className="text-[11px] font-mono text-white font-extrabold px-2.5 py-0.5 rounded bg-[#112327] border border-white/20">
                 Target: {meter.meterId}
               </span>
             </div>
 
             {/* Quick 1-Click Simulation Scenarios */}
             <div className="my-4">
-              <label className="text-xs font-bold text-teal-200 uppercase tracking-wider block mb-2">
+              <label className="text-xs font-bold text-white/75 uppercase tracking-wider block mb-2">
                 1-Click Preset Ingestion Scenarios:
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                 <button
                   type="button"
                   onClick={() => handlePresetScenario('normal')}
-                  className="p-3 rounded-xl bg-[#003d37] hover:bg-[#004841] border border-white/15 text-left transition-colors shadow-xs"
+                  className="p-3 rounded-xl bg-[#1a2d31] hover:bg-[#112327] border border-white/15 text-left transition-colors shadow-xs"
                 >
                   <div className="text-xs font-bold text-emerald-300">Normal Household</div>
-                  <div className="text-[10px] text-teal-200 font-mono mt-0.5">230V • 5.4A • 1.2 kW</div>
+                  <div className="text-[10px] text-white/75 font-mono mt-0.5">230V • 5.4A • 1.2 kW</div>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => handlePresetScenario('heavy')}
-                  className="p-3 rounded-xl bg-[#003d37] hover:bg-[#004841] border border-white/15 text-left transition-colors shadow-xs"
+                  className="p-3 rounded-xl bg-[#1a2d31] hover:bg-[#112327] border border-white/15 text-left transition-colors shadow-xs"
                 >
                   <div className="text-xs font-bold text-white">Industrial HVAC</div>
-                  <div className="text-[10px] text-teal-200 font-mono mt-0.5">228V • 26.8A • 5.7 kW</div>
+                  <div className="text-[10px] text-white/75 font-mono mt-0.5">228V • 26.8A • 5.7 kW</div>
                 </button>
 
                 <button
@@ -309,8 +309,8 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
                   <div className="text-[10px] text-rose-200 font-mono mt-0.5">174.0V • Critical Brownout</div>
                 </button>
 
-                <div className="p-3 rounded-xl bg-[#003833] border border-white/15 text-left flex flex-col justify-center">
-                  <div className="text-[11px] text-teal-200 font-medium">Relay Output</div>
+                <div className="p-3 rounded-xl bg-[#112327] border border-white/15 text-left flex flex-col justify-center">
+                  <div className="text-[11px] text-white/75 font-medium">Relay Output</div>
                   <div className={`text-xs font-bold font-mono ${meter.relayState === 'ON' ? 'text-emerald-300' : 'text-rose-400'}`}>
                     {meter.relayState === 'ON' ? 'ENERGIZED (ON)' : 'TRIPPED (OFF)'}
                   </div>
@@ -322,7 +322,7 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
             <div className="space-y-4 pt-2 border-t border-white/15">
               <div>
                 <div className="flex justify-between text-xs font-mono mb-1">
-                  <span className="text-teal-200 font-semibold">Line Voltage:</span>
+                  <span className="text-white/75 font-semibold">Line Voltage:</span>
                   <span className="font-bold text-white">{simVoltage.toFixed(1)} V</span>
                 </div>
                 <input
@@ -332,13 +332,13 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
                   step="0.5"
                   value={simVoltage}
                   onChange={e => setSimVoltage(parseFloat(e.target.value))}
-                  className="w-full accent-white h-2 bg-[#003833] rounded-lg cursor-pointer"
+                  className="w-full accent-white h-2 bg-[#112327] rounded-lg cursor-pointer"
                 />
               </div>
 
               <div>
                 <div className="flex justify-between text-xs font-mono mb-1">
-                  <span className="text-teal-200 font-semibold">Load Amperage (Current):</span>
+                  <span className="text-white/75 font-semibold">Load Amperage (Current):</span>
                   <span className="font-bold text-white">{simCurrent.toFixed(1)} A</span>
                 </div>
                 <input
@@ -348,14 +348,14 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
                   step="0.2"
                   value={simCurrent}
                   onChange={e => setSimCurrent(parseFloat(e.target.value))}
-                  className="w-full accent-white h-2 bg-[#003833] rounded-lg cursor-pointer"
+                  className="w-full accent-white h-2 bg-[#112327] rounded-lg cursor-pointer"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <div className="flex justify-between text-xs font-mono mb-1">
-                    <span className="text-teal-200 font-semibold">Power Factor:</span>
+                    <span className="text-white/75 font-semibold">Power Factor:</span>
                     <span className="font-bold text-white">{simPF.toFixed(2)}</span>
                   </div>
                   <input
@@ -365,12 +365,12 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
                     step="0.01"
                     value={simPF}
                     onChange={e => setSimPF(parseFloat(e.target.value))}
-                    className="w-full accent-white h-2 bg-[#003833] rounded-lg cursor-pointer"
+                    className="w-full accent-white h-2 bg-[#112327] rounded-lg cursor-pointer"
                   />
                 </div>
                 <div>
                   <div className="flex justify-between text-xs font-mono mb-1">
-                    <span className="text-teal-200 font-semibold">Frequency:</span>
+                    <span className="text-white/75 font-semibold">Frequency:</span>
                     <span className="font-bold text-white">{simFreq.toFixed(2)} Hz</span>
                   </div>
                   <input
@@ -380,15 +380,15 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
                     step="0.05"
                     value={simFreq}
                     onChange={e => setSimFreq(parseFloat(e.target.value))}
-                    className="w-full accent-white h-2 bg-[#003833] rounded-lg cursor-pointer"
+                    className="w-full accent-white h-2 bg-[#112327] rounded-lg cursor-pointer"
                   />
                 </div>
               </div>
             </div>
 
             {/* Calculated active power display */}
-            <div className="mt-4 p-3 rounded-xl bg-[#003833] border border-white/15 flex items-center justify-between text-xs font-mono">
-              <span className="text-teal-200 font-bold">Calculated Active Power:</span>
+            <div className="mt-4 p-3 rounded-xl bg-[#112327] border border-white/15 flex items-center justify-between text-xs font-mono">
+              <span className="text-white/75 font-bold">Calculated Active Power:</span>
               <span className="font-black text-white text-base">
                 {(simVoltage * simCurrent * simPF).toFixed(0)} Watts
               </span>
@@ -400,7 +400,7 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
                 type="button"
                 onClick={handleTransmitSimulation}
                 disabled={isSending}
-                className="w-full flex items-center justify-center space-x-2 py-3.5 rounded-xl bg-white hover:bg-teal-50 text-[#005149] font-black text-xs transition-all shadow-md active:scale-95 disabled:opacity-50"
+                className="w-full flex items-center justify-center space-x-2 py-3.5 rounded-xl bg-white hover:bg-white/90 text-[#112327] font-black text-xs transition-all shadow-md active:scale-95 disabled:opacity-50"
               >
                 <Send className={`w-4 h-4 ${isSending ? 'animate-bounce' : ''}`} />
                 <span>{isSending ? 'Transmitting to /api/telemetry/ingest...' : 'Transmit Live Telemetry Sample'}</span>
@@ -409,15 +409,15 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
           </div>
 
           {/* Right: ESP32 UART Serial Monitor Terminal */}
-          <div className="lg:col-span-5 rounded-2xl bg-[#002220] border border-white/20 p-4 shadow-xl flex flex-col h-[480px]">
+          <div className="lg:col-span-5 rounded-2xl bg-[#112327] border border-white/20 p-4 shadow-xl flex flex-col h-[480px]">
             <div className="flex items-center justify-between pb-3 border-b border-white/10">
-              <div className="flex items-center space-x-2 text-xs font-mono text-teal-200 font-bold">
+              <div className="flex items-center space-x-2 text-xs font-mono text-white/80 font-bold">
                 <Terminal className="w-4 h-4 text-emerald-300" />
                 <span>ESP32 Virtual Serial Monitor (115200 baud)</span>
               </div>
               <button
                 onClick={() => setSerialLogs([])}
-                className="text-[11px] text-teal-300 hover:text-white font-mono"
+                className="text-[11px] text-white/70 hover:text-white font-mono"
               >
                 Clear
               </button>
@@ -432,10 +432,10 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
                     log.includes('ANOMALY')
                       ? 'text-rose-300 font-bold'
                       : log.includes('TX ->')
-                      ? 'text-teal-200'
+                      ? 'text-white/90'
                       : log.includes('RX <-')
                       ? 'text-emerald-300 font-semibold'
-                      : 'text-teal-400'
+                      : 'text-white/60'
                   }`}
                 >
                   {log}
@@ -443,7 +443,7 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
               ))}
             </div>
 
-            <div className="pt-3 border-t border-white/10 text-[10px] font-mono text-teal-300 flex justify-between items-center">
+            <div className="pt-3 border-t border-white/10 text-[10px] font-mono text-white/70 flex justify-between items-center">
               <span>Endpoint: POST /api/telemetry/ingest</span>
               <span className="text-emerald-400 font-bold">READY</span>
             </div>
@@ -452,24 +452,24 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
         </div>
       ) : (
         /* Tab 2: Firmware Code Generator */
-        <div className="rounded-2xl bg-[#005149] border border-white/20 p-5 shadow-lg text-white">
+        <div className="rounded-2xl bg-[#1e373e] border border-white/20 p-5 shadow-lg text-white">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/15">
             <div>
               <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                <FileCode2 className="w-4 h-4 text-teal-200" />
+                <FileCode2 className="w-4 h-4 text-white" />
                 <span>Ready-to-Flash ESP32 Firmware Source Code</span>
               </h3>
-              <p className="text-xs text-teal-200 mt-0.5">
+              <p className="text-xs text-white/75 mt-0.5">
                 Copy and flash directly via Arduino IDE, PlatformIO, or Thonny IDE
               </p>
             </div>
 
             <div className="flex items-center space-x-2">
-              <div className="flex rounded-lg bg-[#003833] p-1 border border-white/20 text-xs font-semibold">
+              <div className="flex rounded-lg bg-[#112327] p-1 border border-white/20 text-xs font-semibold">
                 <button
                   onClick={() => setCodeType('arduino')}
                   className={`px-3 py-1.5 rounded-md transition-colors ${
-                    codeType === 'arduino' ? 'bg-white text-[#005149] font-black shadow-xs' : 'text-teal-200 hover:text-white'
+                    codeType === 'arduino' ? 'bg-white text-[#112327] font-black shadow-xs' : 'text-white/75 hover:text-white'
                   }`}
                 >
                   Arduino C++ (.ino)
@@ -477,7 +477,7 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
                 <button
                   onClick={() => setCodeType('micropython')}
                   className={`px-3 py-1.5 rounded-md transition-colors ${
-                    codeType === 'micropython' ? 'bg-white text-[#005149] font-black shadow-xs' : 'text-teal-200 hover:text-white'
+                    codeType === 'micropython' ? 'bg-white text-[#112327] font-black shadow-xs' : 'text-white/75 hover:text-white'
                   }`}
                 >
                   MicroPython (.py)
@@ -486,70 +486,70 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
 
               <button
                 onClick={handleCopyCode}
-                className="flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-white hover:bg-teal-50 text-[#005149] text-xs font-black transition-all shadow-md"
+                className="flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-white hover:bg-white/90 text-[#112327] text-xs font-black transition-all shadow-md"
               >
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-[#005149]" />}
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-[#112327]" />}
                 <span>{copied ? 'Copied to Clipboard!' : 'Copy Code'}</span>
               </button>
             </div>
           </div>
 
           {/* Quick Firmware Customizer Bar */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4 p-4 rounded-xl bg-[#003d37] border border-white/15 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4 p-4 rounded-xl bg-[#1a2d31] border border-white/15 text-xs">
             <div>
-              <label className="text-[11px] font-bold text-teal-200 uppercase">WiFi SSID</label>
+              <label className="text-[11px] font-bold text-white/75 uppercase">WiFi SSID</label>
               <input
                 type="text"
                 value={wifiSsid}
                 onChange={e => setWifiSsid(e.target.value)}
-                className="w-full mt-1 px-3 py-1.5 rounded-lg bg-[#004841] border border-white/30 text-white font-mono text-xs focus:outline-none focus:border-white"
+                className="w-full mt-1 px-3 py-1.5 rounded-lg bg-[#112327] border border-white/30 text-white font-mono text-xs focus:outline-none focus:border-white"
               />
             </div>
             <div>
-              <label className="text-[11px] font-bold text-teal-200 uppercase">WiFi Password</label>
+              <label className="text-[11px] font-bold text-white/75 uppercase">WiFi Password</label>
               <input
                 type="text"
                 value={wifiPass}
                 onChange={e => setWifiPass(e.target.value)}
-                className="w-full mt-1 px-3 py-1.5 rounded-lg bg-[#004841] border border-white/30 text-white font-mono text-xs focus:outline-none focus:border-white"
+                className="w-full mt-1 px-3 py-1.5 rounded-lg bg-[#112327] border border-white/30 text-white font-mono text-xs focus:outline-none focus:border-white"
               />
             </div>
             <div>
-              <label className="text-[11px] font-bold text-teal-200 uppercase">VoltPulse Server URL</label>
+              <label className="text-[11px] font-bold text-white/75 uppercase">VoltPulse Server URL</label>
               <input
                 type="text"
                 value={serverUrl}
                 onChange={e => setServerUrl(e.target.value)}
-                className="w-full mt-1 px-3 py-1.5 rounded-lg bg-[#004841] border border-white/30 text-white font-mono text-xs focus:outline-none focus:border-white"
+                className="w-full mt-1 px-3 py-1.5 rounded-lg bg-[#112327] border border-white/30 text-white font-mono text-xs focus:outline-none focus:border-white"
               />
             </div>
           </div>
 
           {/* Code Viewer Box */}
-          <div className="relative rounded-xl overflow-hidden border border-white/20 bg-[#002220]">
-            <div className="flex items-center justify-between px-4 py-2 bg-[#002824] border-b border-white/10 text-xs font-mono text-teal-200">
+          <div className="relative rounded-xl overflow-hidden border border-white/20 bg-[#112327]">
+            <div className="flex items-center justify-between px-4 py-2 bg-[#1a2d31] border-b border-white/10 text-xs font-mono text-white/80">
               <span className="text-white font-bold">{codeType === 'arduino' ? 'esp32_smart_meter.ino' : 'main.py'}</span>
               <span>API Key: {meter.apiKey}</span>
             </div>
-            <pre className="p-4 text-xs font-mono text-teal-100 overflow-x-auto max-h-[460px] leading-relaxed">
+            <pre className="p-4 text-xs font-mono text-white/90 overflow-x-auto max-h-[460px] leading-relaxed">
               <code>{generatedCode}</code>
             </pre>
           </div>
 
           {/* Pinout Guide */}
-          <div className="mt-4 p-4 rounded-xl bg-[#003d37] border border-white/15 text-xs text-white">
+          <div className="mt-4 p-4 rounded-xl bg-[#1a2d31] border border-white/15 text-xs text-white">
             <h4 className="font-bold text-white mb-2 flex items-center space-x-1.5">
               <Zap className="w-4 h-4 text-amber-300" />
               <span>Recommended ESP32 Hardware Wiring:</span>
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 font-mono text-[11px]">
-              <div className="p-2.5 rounded-lg bg-[#003833] border border-white/15">
+              <div className="p-2.5 rounded-lg bg-[#112327] border border-white/15">
                 <span className="text-white font-bold">PZEM-004T v3.0:</span> RX &rarr; GPIO 17, TX &rarr; GPIO 16 (Serial2)
               </div>
-              <div className="p-2.5 rounded-lg bg-[#003833] border border-white/15">
+              <div className="p-2.5 rounded-lg bg-[#112327] border border-white/15">
                 <span className="text-emerald-300 font-bold">Relay Module:</span> IN &rarr; GPIO 26 (Optocoupler Breaker)
               </div>
-              <div className="p-2.5 rounded-lg bg-[#003833] border border-white/15">
+              <div className="p-2.5 rounded-lg bg-[#112327] border border-white/15">
                 <span className="text-purple-300 font-bold">NEO-6M GPS:</span> RX &rarr; GPIO 2, TX &rarr; GPIO 4 (Serial1)
               </div>
             </div>

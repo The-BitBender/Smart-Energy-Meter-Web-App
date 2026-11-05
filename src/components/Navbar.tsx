@@ -59,7 +59,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-40 bg-[#002b27] backdrop-blur-md border-b border-white/15 shadow-md">
+    <header className="sticky top-0 z-40 bg-[#1a2d31] backdrop-blur-md border-b border-white/15 shadow-md">
       
       {/* =========================================================================
           TIER 1: Primary System Bar
@@ -73,17 +73,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             
             {/* Logo */}
             <div className="flex items-center space-x-2.5">
-              <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-white shadow-md text-[#005149] shrink-0">
-                <Zap className="w-5 h-5 fill-current animate-pulse text-[#005149]" />
-                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#002b27]"></div>
+              <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-white shadow-md text-[#112327] shrink-0">
+                <Zap className="w-5 h-5 fill-current animate-pulse text-[#112327]" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#1a2d31]"></div>
               </div>
               <div className="leading-tight">
                 <div className="flex items-center space-x-1.5">
                   <span className="font-extrabold text-lg sm:text-xl tracking-tight text-white">
-                    VoltPulse<span className="text-[#005149] font-mono text-[11px] ml-1.5 px-2 py-0.5 rounded-md bg-white font-black shadow-xs">IoT</span>
+                    VoltPulse<span className="text-[#112327] font-mono text-[11px] ml-1.5 px-2 py-0.5 rounded-md bg-white font-black shadow-xs">IoT</span>
                   </span>
                 </div>
-                <p className="text-[10px] text-teal-200/80 font-semibold tracking-wide uppercase hidden sm:block">
+                <p className="text-[10px] text-white/75 font-semibold tracking-wide uppercase hidden sm:block">
                   Smart Energy Meter
                 </p>
               </div>
@@ -94,31 +94,31 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 type="button"
                 onClick={() => setMeterDropdownOpen(!meterDropdownOpen)}
-                className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-[#00423c] hover:bg-[#004e47] border border-white/20 text-xs font-semibold text-white transition-colors shadow-xs active:scale-95 cursor-pointer"
+                className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-[#1e373e] hover:bg-[#112327] border border-white/20 text-xs font-semibold text-white transition-colors shadow-xs active:scale-95 cursor-pointer"
                 title="Select active energy meter"
               >
-                <Radio className="w-3.5 h-3.5 text-teal-300 animate-pulse shrink-0" />
+                <Radio className="w-3.5 h-3.5 text-white animate-pulse shrink-0" />
                 <div className="flex flex-col text-left">
                   <span className="font-mono text-white font-extrabold text-xs leading-none">
                     {activeMeter?.meterId || 'No Meter'}
                   </span>
                   {activeMeter?.name && (
-                    <span className="text-[10px] text-teal-200/80 max-w-[110px] sm:max-w-[140px] truncate leading-tight mt-0.5">
+                    <span className="text-[10px] text-white/75 max-w-[110px] sm:max-w-[140px] truncate leading-tight mt-0.5">
                       {activeMeter.name}
                     </span>
                   )}
                 </div>
-                <ChevronDown className={`w-3.5 h-3.5 text-teal-300 transition-transform ${meterDropdownOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`w-3.5 h-3.5 text-white/80 transition-transform ${meterDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
 
               {meterDropdownOpen && (
                 <div 
-                  className="absolute left-0 mt-2 w-72 sm:w-80 rounded-2xl bg-[#003833] border border-white/20 shadow-2xl p-2.5 z-50 divide-y divide-white/10 animate-in fade-in zoom-in-95"
+                  className="absolute left-0 mt-2 w-72 sm:w-80 rounded-2xl bg-[#1a2d31] border border-white/20 shadow-2xl p-2.5 z-50 divide-y divide-white/10 animate-in fade-in zoom-in-95"
                   onMouseLeave={() => setMeterDropdownOpen(false)}
                 >
-                  <div className="px-2 py-1.5 text-[11px] font-bold text-teal-200 uppercase tracking-wider flex items-center justify-between">
+                  <div className="px-2 py-1.5 text-[11px] font-bold text-white/75 uppercase tracking-wider flex items-center justify-between">
                     <span>Registered Energy Meters</span>
-                    <span className="text-white font-mono font-bold bg-white/15 px-2 py-0.5 rounded-md">{meters.length}</span>
+                    <span className="text-white font-mono font-bold bg-[#1e373e] px-2 py-0.5 rounded-md border border-white/15">{meters.length}</span>
                   </div>
                   <div className="py-1.5 max-h-60 overflow-y-auto space-y-1">
                     {meters.map((meter) => (
@@ -126,8 +126,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                         key={meter.meterId}
                         className={`w-full px-3 py-2 rounded-xl text-xs flex items-center justify-between transition-colors ${
                           activeMeter?.meterId === meter.meterId
-                            ? 'bg-white text-[#005149] font-bold shadow-xs'
-                            : 'hover:bg-white/10 text-white'
+                            ? 'bg-white text-[#112327] font-bold shadow-xs'
+                            : 'hover:bg-[#1e373e] text-white'
                         }`}
                       >
                         <button
@@ -144,7 +144,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                               <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping"></span>
                             )}
                           </div>
-                          <div className={`text-[11px] truncate max-w-[150px] ${activeMeter?.meterId === meter.meterId ? 'text-teal-800' : 'text-teal-200/80'}`}>
+                          <div className={`text-[11px] truncate max-w-[150px] ${activeMeter?.meterId === meter.meterId ? 'text-[#1e373e]' : 'text-white/70'}`}>
                             {meter.name}
                           </div>
                         </button>
@@ -154,7 +154,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                             return (
                               <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold shrink-0 ${
                                 activeMeter?.meterId === meter.meterId
-                                  ? 'bg-[#005149] text-white'
+                                  ? 'bg-[#112327] text-white'
                                   : mStatus.isOnline
                                     ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30'
                                     : 'bg-rose-950 text-rose-300 border border-rose-500/30'
@@ -190,9 +190,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                         setMeterDropdownOpen(false);
                         onOpenLinkModal();
                       }}
-                      className="w-full py-2 px-3 rounded-xl bg-white hover:bg-teal-50 text-[#005149] text-xs font-bold flex items-center justify-center space-x-2 transition-colors shadow-sm cursor-pointer"
+                      className="w-full py-2 px-3 rounded-xl bg-white hover:bg-white/90 text-[#112327] text-xs font-bold flex items-center justify-center space-x-2 transition-colors shadow-sm cursor-pointer"
                     >
-                      <Plus className="w-3.5 h-3.5 text-[#005149]" />
+                      <Plus className="w-3.5 h-3.5 text-[#112327]" />
                       <span>Add / Link New Meter</span>
                     </button>
                   </div>
@@ -231,7 +231,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               type="button"
               onClick={onOpenLinkModal}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-bold text-white transition-all shadow-xs active:scale-95 cursor-pointer"
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#1e373e] hover:bg-[#112327] border border-white/20 text-xs font-bold text-white transition-all shadow-xs active:scale-95 cursor-pointer"
               title="Add another meter"
             >
               <Plus className="w-3.5 h-3.5 text-white" />
@@ -244,9 +244,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               onClick={onOpenSettings}
               title="Configure Anomaly Email Alerts"
               aria-label="Notification & Alert Settings"
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#00423c] hover:bg-[#004e47] border border-white/20 text-xs font-semibold text-white transition-colors shadow-xs active:scale-95 cursor-pointer"
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#1e373e] hover:bg-[#112327] border border-white/20 text-xs font-semibold text-white transition-colors shadow-xs active:scale-95 cursor-pointer"
             >
-              <Bell className="w-3.5 h-3.5 text-teal-300" />
+              <Bell className="w-3.5 h-3.5 text-white" />
               <span className="hidden sm:inline">Alerts</span>
             </button>
 
@@ -256,7 +256,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   type="button"
                   onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                  className="flex items-center space-x-2 p-1 rounded-full hover:bg-white/10 transition-colors border border-white/20 cursor-pointer"
+                  className="flex items-center space-x-2 p-1 rounded-full hover:bg-[#1e373e] transition-colors border border-white/20 cursor-pointer"
                 >
                   {user.photoURL ? (
                     <img
@@ -265,25 +265,25 @@ export const Navbar: React.FC<NavbarProps> = ({
                       className="w-8 h-8 rounded-full border border-white object-cover"
                     />
                   ) : (
-                    <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-[#005149] font-black text-xs">
+                    <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-[#112327] font-black text-xs">
                       {user.email ? user.email.charAt(0).toUpperCase() : 'U'}
                     </div>
                   )}
-                  <ChevronDown className="w-3 h-3 text-teal-200 hidden sm:block mr-1" />
+                  <ChevronDown className="w-3 h-3 text-white/75 hidden sm:block mr-1" />
                 </button>
 
                 {userDropdownOpen && (
                   <div 
-                    className="absolute right-0 mt-2 w-64 rounded-2xl bg-[#003833] border border-white/20 shadow-2xl p-3.5 z-50 text-white animate-in fade-in zoom-in-95"
+                    className="absolute right-0 mt-2 w-64 rounded-2xl bg-[#1a2d31] border border-white/20 shadow-2xl p-3.5 z-50 text-white animate-in fade-in zoom-in-95"
                     onMouseLeave={() => setUserDropdownOpen(false)}
                   >
                     <div className="flex items-center space-x-2.5 pb-2.5 border-b border-white/10">
-                      <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center text-[#005149] font-black text-sm shrink-0">
+                      <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center text-[#112327] font-black text-sm shrink-0">
                         {user.email ? user.email.charAt(0).toUpperCase() : 'U'}
                       </div>
                       <div className="overflow-hidden">
                         <div className="text-xs font-bold text-white truncate">{user.displayName || 'Operator'}</div>
-                        <div className="text-[11px] text-teal-200 truncate">{user.email}</div>
+                        <div className="text-[11px] text-white/75 truncate">{user.email}</div>
                       </div>
                     </div>
                     
@@ -294,14 +294,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                           setUserDropdownOpen(false);
                           onOpenSettings();
                         }}
-                        className="w-full flex items-center space-x-2 py-1.5 px-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-colors text-left cursor-pointer"
+                        className="w-full flex items-center space-x-2 py-1.5 px-2 rounded-lg bg-[#1e373e] hover:bg-[#112327] text-white text-xs font-semibold transition-colors text-left cursor-pointer"
                       >
-                        <Bell className="w-3.5 h-3.5 text-teal-300" />
+                        <Bell className="w-3.5 h-3.5 text-white" />
                         <span>Email Alert Settings</span>
                       </button>
                     </div>
 
-                    <div className="py-2 text-[11px] text-teal-200/80">
+                    <div className="py-2 text-[11px] text-white/70">
                       Connected to Google Account &amp; Firestore.
                     </div>
                     <button
@@ -321,7 +321,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 type="button"
                 onClick={onSignIn}
-                className="flex items-center space-x-2 px-3.5 py-1.5 rounded-xl bg-white hover:bg-teal-50 text-[#005149] text-xs font-black transition-all shadow-md active:scale-95 cursor-pointer"
+                className="flex items-center space-x-2 px-3.5 py-1.5 rounded-xl bg-white hover:bg-white/90 text-[#112327] text-xs font-black transition-all shadow-md active:scale-95 cursor-pointer"
               >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -337,7 +337,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Small Screen Online / Offline Status Bar (shown when sm: hidden) */}
         <div className="sm:hidden pb-2 flex items-center justify-between text-[11px] font-mono border-t border-white/10 pt-1.5">
-          <div className="flex items-center space-x-1.5 text-teal-200">
+          <div className="flex items-center space-x-1.5 text-white/75">
             <span>Status:</span>
             <span className={`px-2 py-0.5 rounded-full font-bold ${
               isOnline ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40' : 'bg-rose-950 text-rose-300 border border-rose-500/40'
@@ -345,7 +345,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               {isOnline ? 'ONLINE' : 'OFFLINE'}
             </span>
           </div>
-          <span className="text-teal-300/80">{lastSeen.relativeTime}</span>
+          <span className="text-white/75">{lastSeen.relativeTime}</span>
         </div>
       </div>
 
@@ -353,7 +353,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           TIER 2: Sub-Navigation Tab Bar (Second Line)
           Dashboard, Telemetry Charts, GPS Location, Theft Shield, ESP32, Settings
           ========================================================================= */}
-      <div className="bg-[#00221f] border-t border-white/10 shadow-inner">
+      <div className="bg-[#112327] border-t border-white/10 shadow-inner">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between">
             
@@ -366,8 +366,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => setActiveTab('dashboard')}
                 className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
                   activeTab === 'dashboard'
-                    ? 'bg-white text-[#005149] shadow-md font-extrabold scale-[1.02]'
-                    : 'text-teal-100 hover:text-white hover:bg-white/10'
+                    ? 'bg-white text-[#112327] shadow-md font-extrabold scale-[1.02]'
+                    : 'text-white/80 hover:text-white hover:bg-[#1e373e]'
                 }`}
               >
                 <Activity className="w-3.5 h-3.5" />
@@ -380,8 +380,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => setActiveTab('analytics')}
                 className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
                   activeTab === 'analytics'
-                    ? 'bg-white text-[#005149] shadow-md font-extrabold scale-[1.02]'
-                    : 'text-teal-100 hover:text-white hover:bg-white/10'
+                    ? 'bg-white text-[#112327] shadow-md font-extrabold scale-[1.02]'
+                    : 'text-white/80 hover:text-white hover:bg-[#1e373e]'
                 }`}
               >
                 <BarChart3 className="w-3.5 h-3.5" />
@@ -394,8 +394,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => setActiveTab('map')}
                 className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
                   activeTab === 'map'
-                    ? 'bg-white text-[#005149] shadow-md font-extrabold scale-[1.02]'
-                    : 'text-teal-100 hover:text-white hover:bg-white/10'
+                    ? 'bg-white text-[#112327] shadow-md font-extrabold scale-[1.02]'
+                    : 'text-white/80 hover:text-white hover:bg-[#1e373e]'
                 }`}
               >
                 <MapPin className="w-3.5 h-3.5" />
@@ -408,8 +408,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => setActiveTab('anomalies')}
                 className={`relative flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
                   activeTab === 'anomalies'
-                    ? 'bg-white text-[#005149] shadow-md font-extrabold scale-[1.02]'
-                    : 'text-teal-100 hover:text-white hover:bg-white/10'
+                    ? 'bg-white text-[#112327] shadow-md font-extrabold scale-[1.02]'
+                    : 'text-white/80 hover:text-white hover:bg-[#1e373e]'
                 }`}
               >
                 <ShieldAlert className="w-3.5 h-3.5" />
@@ -428,8 +428,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => setActiveTab('workbench')}
                 className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
                   activeTab === 'workbench'
-                    ? 'bg-white text-[#005149] shadow-md font-extrabold scale-[1.02]'
-                    : 'text-teal-100 hover:text-white hover:bg-white/10'
+                    ? 'bg-white text-[#112327] shadow-md font-extrabold scale-[1.02]'
+                    : 'text-white/80 hover:text-white hover:bg-[#1e373e]'
                 }`}
               >
                 <Cpu className="w-3.5 h-3.5" />
@@ -442,8 +442,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => setActiveTab('settings')}
                 className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
                   activeTab === 'settings'
-                    ? 'bg-white text-[#005149] shadow-md font-extrabold scale-[1.02]'
-                    : 'text-teal-100 hover:text-white hover:bg-white/10'
+                    ? 'bg-white text-[#112327] shadow-md font-extrabold scale-[1.02]'
+                    : 'text-white/80 hover:text-white hover:bg-[#1e373e]'
                 }`}
               >
                 <Settings className="w-3.5 h-3.5" />
@@ -453,16 +453,16 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Quick Context Pill on Desktop (Relay state & Active Power) */}
             {activeMeter && (
-              <div className="hidden lg:flex items-center space-x-3 text-xs font-mono text-teal-200/90 shrink-0 pl-4">
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-black/25 border border-white/10">
-                  <Power className="w-3 h-3 text-teal-300" />
-                  <span className="text-teal-300/70">Relay:</span>
+              <div className="hidden lg:flex items-center space-x-3 text-xs font-mono text-white/80 shrink-0 pl-4">
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-[#1a2d31] border border-white/15">
+                  <Power className="w-3 h-3 text-white" />
+                  <span className="text-white/70">Relay:</span>
                   <span className={`font-bold ${activeMeter.relayState === 'ON' ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {activeMeter.relayState}
                   </span>
                 </div>
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-black/25 border border-white/10">
-                  <span className="text-teal-300/70">Power:</span>
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-[#1a2d31] border border-white/15">
+                  <span className="text-white/70">Power:</span>
                   <span className="text-white font-bold">
                     {(activeMeter.activePower / 1000).toFixed(2)} kW
                   </span>

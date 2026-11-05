@@ -966,13 +966,13 @@ export default function App() {
   // -------------------------------------------------------------
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#002b27] flex flex-col items-center justify-center p-4 text-white">
-        <div className="relative flex items-center justify-center w-16 h-16 rounded-2xl bg-white text-[#005149] shadow-2xl mb-4 animate-bounce">
-          <Zap className="w-9 h-9 fill-current text-[#005149]" />
+      <div className="min-h-screen bg-[#112327] flex flex-col items-center justify-center p-4 text-white">
+        <div className="relative flex items-center justify-center w-16 h-16 rounded-2xl bg-white text-[#112327] shadow-2xl mb-4 animate-bounce">
+          <Zap className="w-9 h-9 fill-current text-[#112327]" />
         </div>
         <h2 className="text-xl font-black tracking-tight text-white">VoltPulse IoT</h2>
-        <p className="text-xs text-teal-200 mt-1 font-mono">Verifying secure grid session...</p>
-        <div className="mt-6 w-48 h-1.5 bg-[#003833] rounded-full overflow-hidden">
+        <p className="text-xs text-white/75 mt-1 font-mono">Verifying secure grid session...</p>
+        <div className="mt-6 w-48 h-1.5 bg-[#1e373e] rounded-full overflow-hidden">
           <div className="w-full h-full bg-white animate-pulse"></div>
         </div>
       </div>
@@ -998,7 +998,7 @@ export default function App() {
   // AUTHENTICATED DASHBOARD
   // -------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-[#00221f] text-white flex flex-col font-sans selection:bg-white selection:text-[#005149]">
+    <div className="min-h-screen bg-[#112327] text-white flex flex-col font-sans selection:bg-white selection:text-[#112327]">
       
       {/* High-visibility Brand Navbar */}
       <Navbar
@@ -1023,22 +1023,22 @@ export default function App() {
         
         {/* If no meter configured yet, present quick connect hero */}
         {meters.length === 0 && !activeMeter && (
-          <div className="p-8 sm:p-12 rounded-3xl bg-[#003833] border-2 border-white/20 text-center shadow-2xl space-y-6 my-6">
-            <div className="w-16 h-16 rounded-2xl bg-white text-[#005149] flex items-center justify-center mx-auto shadow-xl">
-              <Cpu className="w-8 h-8 text-[#005149]" />
+          <div className="p-8 sm:p-12 rounded-3xl bg-[#1e373e] border-2 border-white/20 text-center shadow-2xl space-y-6 my-6">
+            <div className="w-16 h-16 rounded-2xl bg-white text-[#112327] flex items-center justify-center mx-auto shadow-xl">
+              <Cpu className="w-8 h-8 text-[#112327]" />
             </div>
             <div className="space-y-2 max-w-lg mx-auto">
               <h2 className="text-2xl font-black text-white">No Energy Meter Connected Yet</h2>
-              <p className="text-sm text-teal-200">
+              <p className="text-sm text-white/75">
                 To view telemetry and anti-theft monitoring, connect your ESP32 hardware meter or auto-generate a virtual test meter.
               </p>
             </div>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
               <button
                 onClick={() => setIsOnboardingOpen(true)}
-                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-white hover:bg-teal-50 text-[#005149] font-black text-sm transition-all shadow-lg active:scale-95 flex items-center justify-center space-x-2"
+                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-white hover:bg-white/90 text-[#112327] font-black text-sm transition-all shadow-lg active:scale-95 flex items-center justify-center space-x-2"
               >
-                <Plus className="w-5 h-5 text-[#005149]" />
+                <Plus className="w-5 h-5 text-[#112327]" />
                 <span>Configure &amp; Connect Meter</span>
               </button>
             </div>
@@ -1053,25 +1053,23 @@ export default function App() {
                 <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
                   {activeMeter.name}
                 </h1>
-                <span className="font-mono text-xs px-2.5 py-0.5 rounded-full bg-white text-[#005149] font-black shadow-xs">
+                <span className="font-mono text-xs px-2.5 py-0.5 rounded-full bg-white text-[#112327] font-black shadow-xs">
                   {activeMeter.meterId}
                 </span>
               </div>
-              <p className="text-xs text-teal-200 mt-0.5 flex items-center space-x-1.5">
+              <p className="text-xs text-white/75 mt-0.5 flex items-center space-x-1.5">
                 <span>{activeMeter.address}</span>
                 <span>•</span>
-                <span className="font-mono text-teal-100">GPS: {activeMeter.latitude.toFixed(4)}, {activeMeter.longitude.toFixed(4)}</span>
+                <span className="font-mono text-white/90">GPS: {activeMeter.latitude.toFixed(4)}, {activeMeter.longitude.toFixed(4)}</span>
               </p>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setIsLinkModalOpen(true)}
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors border border-white/15"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Another Meter</span>
-              </button>
+            <div className="flex items-center">
+              <RemoteRelaySwitch
+                meter={activeMeter}
+                onToggleRelay={handleToggleRelay}
+                isLoading={isRelayLoading}
+              />
             </div>
           </div>
         )}
@@ -1091,13 +1089,6 @@ export default function App() {
               <div className="space-y-6">
                 {/* 6 Real-time Telemetry Cards in requested sequence: Energy -> Active Power -> Reactive Power -> Voltage -> Current */}
                 <TelemetryGauges meter={activeMeter} />
-
-                {/* Industrial Remote Relay Circuit Breaker Switch */}
-                <RemoteRelaySwitch
-                  meter={activeMeter}
-                  onToggleRelay={handleToggleRelay}
-                  isLoading={isRelayLoading}
-                />
 
                 {/* Live Real-time Chart snippet */}
                 <HistoricalCharts
@@ -1179,15 +1170,15 @@ export default function App() {
 
       </main>
 
-      {/* Footer in Deep Teal Green & White */}
-      <footer className="border-t border-white/10 bg-[#002b27] py-4 text-center text-xs text-teal-200 font-mono shadow-md">
+      {/* Footer */}
+      <footer className="border-t border-white/10 bg-[#1a2d31] py-4 text-center text-xs text-white/75 font-mono shadow-md">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="flex items-center space-x-2">
             <span className="w-2.5 h-2.5 rounded-full bg-white"></span>
             <span className="font-semibold text-white">VoltPulse IoT • ESP32 Grid Energy Telemetry &amp; Anti-Theft Protection</span>
           </div>
           <div>
-            API Ingestion Endpoint: <code className="text-white bg-white/15 px-2 py-0.5 rounded font-bold">/api/telemetry/ingest</code>
+            API Ingestion Endpoint: <code className="text-white bg-[#1e373e] border border-white/15 px-2 py-0.5 rounded font-bold">/api/telemetry/ingest</code>
           </div>
         </div>
       </footer>

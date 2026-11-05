@@ -53,7 +53,7 @@ export const GpsLocationMap: React.FC<GpsLocationMapProps> = ({
   };
 
   return (
-    <div className="rounded-2xl bg-[#005149] border border-white/20 p-5 shadow-lg mb-6 text-white transition-all hover:border-white/40">
+    <div className="rounded-2xl bg-[#1e373e] border border-white/20 p-5 shadow-lg mb-6 text-white transition-all hover:border-white/40">
       
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/15">
@@ -62,7 +62,7 @@ export const GpsLocationMap: React.FC<GpsLocationMapProps> = ({
             <MapPin className="w-5 h-5 text-white" />
             <h3 className="text-base font-bold text-white">ESP32 GPS Telemetry &amp; Geospatial Site</h3>
           </div>
-          <p className="text-xs text-teal-200 mt-0.5">
+          <p className="text-xs text-white/75 mt-0.5">
             Geotagged physical installation point for Meter <span className="font-mono text-white font-extrabold">{meter.meterId}</span>
           </p>
         </div>
@@ -72,16 +72,16 @@ export const GpsLocationMap: React.FC<GpsLocationMapProps> = ({
             type="button"
             onClick={handleUseCurrentLocation}
             disabled={isLocating}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#003d37] hover:bg-[#004841] text-white text-xs font-bold transition-colors border border-white/20 disabled:opacity-50"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#1a2d31] hover:bg-[#112327] text-white text-xs font-bold transition-colors border border-white/20 disabled:opacity-50"
           >
-            <Crosshair className={`w-3.5 h-3.5 text-teal-300 ${isLocating ? 'animate-spin' : ''}`} />
+            <Crosshair className={`w-3.5 h-3.5 text-white ${isLocating ? 'animate-spin' : ''}`} />
             <span>{isLocating ? 'Acquiring Fix...' : 'Geotag via GPS'}</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsEditing(!isEditing)}
-            className="px-3 py-1.5 rounded-lg bg-[#003d37] hover:bg-[#004841] text-white text-xs font-bold transition-colors border border-white/20"
+            className="px-3 py-1.5 rounded-lg bg-[#1a2d31] hover:bg-[#112327] text-white text-xs font-bold transition-colors border border-white/20"
           >
             {isEditing ? 'Cancel Edit' : 'Edit Coordinates'}
           </button>
@@ -90,9 +90,9 @@ export const GpsLocationMap: React.FC<GpsLocationMapProps> = ({
             href={googleMapsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-teal-50 text-[#005149] text-xs font-black transition-colors shadow-md"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-white/90 text-[#112327] text-xs font-black transition-colors shadow-md"
           >
-            <ExternalLink className="w-3.5 h-3.5 text-[#005149]" />
+            <ExternalLink className="w-3.5 h-3.5 text-[#112327]" />
             <span>Google Maps</span>
           </a>
         </div>
@@ -100,37 +100,37 @@ export const GpsLocationMap: React.FC<GpsLocationMapProps> = ({
 
       {/* Coordinate Edit Form */}
       {isEditing && (
-        <form onSubmit={handleSaveCoordinates} className="p-4 my-4 rounded-xl bg-[#003833] border border-white/20 space-y-3">
+        <form onSubmit={handleSaveCoordinates} className="p-4 my-4 rounded-xl bg-[#1a2d31] border border-white/20 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="text-[11px] font-bold text-teal-200 uppercase">Latitude</label>
+              <label className="text-[11px] font-bold text-white/75 uppercase">Latitude</label>
               <input
                 type="number"
                 step="any"
                 value={customLat}
                 onChange={e => setCustomLat(e.target.value)}
-                className="w-full mt-1 px-3 py-1.5 rounded-lg bg-[#004841] border border-white/30 text-white font-mono text-xs focus:outline-none focus:border-white"
+                className="w-full mt-1 px-3 py-1.5 rounded-lg bg-[#112327] border border-white/30 text-white font-mono text-xs focus:outline-none focus:border-white"
                 required
               />
             </div>
             <div>
-              <label className="text-[11px] font-bold text-teal-200 uppercase">Longitude</label>
+              <label className="text-[11px] font-bold text-white/75 uppercase">Longitude</label>
               <input
                 type="number"
                 step="any"
                 value={customLng}
                 onChange={e => setCustomLng(e.target.value)}
-                className="w-full mt-1 px-3 py-1.5 rounded-lg bg-[#004841] border border-white/30 text-white font-mono text-xs focus:outline-none focus:border-white"
+                className="w-full mt-1 px-3 py-1.5 rounded-lg bg-[#112327] border border-white/30 text-white font-mono text-xs focus:outline-none focus:border-white"
                 required
               />
             </div>
             <div>
-              <label className="text-[11px] font-bold text-teal-200 uppercase">Physical Site Address</label>
+              <label className="text-[11px] font-bold text-white/75 uppercase">Physical Site Address</label>
               <input
                 type="text"
                 value={customAddr}
                 onChange={e => setCustomAddr(e.target.value)}
-                className="w-full mt-1 px-3 py-1.5 rounded-lg bg-[#004841] border border-white/30 text-white text-xs focus:outline-none focus:border-white"
+                className="w-full mt-1 px-3 py-1.5 rounded-lg bg-[#112327] border border-white/30 text-white text-xs focus:outline-none focus:border-white"
                 required
               />
             </div>
@@ -139,13 +139,13 @@ export const GpsLocationMap: React.FC<GpsLocationMapProps> = ({
             <button
               type="button"
               onClick={() => setIsEditing(false)}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold text-teal-200 hover:text-white"
+              className="px-3 py-1.5 rounded-lg text-xs font-bold text-white/75 hover:text-white"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 rounded-lg bg-white hover:bg-teal-50 text-[#005149] text-xs font-black transition-all shadow-md"
+              className="px-4 py-1.5 rounded-lg bg-white hover:bg-white/90 text-[#112327] text-xs font-black transition-all shadow-md"
             >
               Update Location Pin
             </button>
@@ -155,36 +155,36 @@ export const GpsLocationMap: React.FC<GpsLocationMapProps> = ({
 
       {/* Location Details Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4">
-        <div className="p-3.5 rounded-xl bg-[#003d37] border border-white/15 flex items-center space-x-3">
-          <div className="p-2.5 rounded-lg bg-white text-[#005149]">
-            <Navigation className="w-4 h-4 text-[#005149]" />
+        <div className="p-3.5 rounded-xl bg-[#1a2d31] border border-white/15 flex items-center space-x-3">
+          <div className="p-2.5 rounded-lg bg-white text-[#112327]">
+            <Navigation className="w-4 h-4 text-[#112327]" />
           </div>
           <div>
-            <div className="text-[11px] text-teal-200 uppercase font-bold">Coordinates</div>
+            <div className="text-[11px] text-white/75 uppercase font-bold">Coordinates</div>
             <div className="text-xs font-mono font-bold text-white mt-0.5">
               {meter.latitude.toFixed(6)}° N, {meter.longitude.toFixed(6)}° E
             </div>
           </div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-[#003d37] border border-white/15 flex items-center space-x-3">
-          <div className="p-2.5 rounded-lg bg-white text-[#005149]">
-            <Globe className="w-4 h-4 text-[#005149]" />
+        <div className="p-3.5 rounded-xl bg-[#1a2d31] border border-white/15 flex items-center space-x-3">
+          <div className="p-2.5 rounded-lg bg-white text-[#112327]">
+            <Globe className="w-4 h-4 text-[#112327]" />
           </div>
           <div className="overflow-hidden">
-            <div className="text-[11px] text-teal-200 uppercase font-bold">Installation Site</div>
+            <div className="text-[11px] text-white/75 uppercase font-bold">Installation Site</div>
             <div className="text-xs font-semibold text-white mt-0.5 truncate">
               {meter.address}
             </div>
           </div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-[#003d37] border border-white/15 flex items-center space-x-3">
-          <div className={`p-2.5 rounded-lg ${meter.hasAnomaly ? 'bg-rose-500 text-white' : 'bg-white text-[#005149]'}`}>
+        <div className="p-3.5 rounded-xl bg-[#1a2d31] border border-white/15 flex items-center space-x-3">
+          <div className={`p-2.5 rounded-lg ${meter.hasAnomaly ? 'bg-rose-500 text-white' : 'bg-white text-[#112327]'}`}>
             <Radio className="w-4 h-4" />
           </div>
           <div>
-            <div className="text-[11px] text-teal-200 uppercase font-bold">Grid Node Telemetry</div>
+            <div className="text-[11px] text-white/75 uppercase font-bold">Grid Node Telemetry</div>
             <div className="text-xs font-mono font-bold text-white mt-0.5">
               PZEM-004T + NEO-6M GPS Active
             </div>
@@ -193,7 +193,7 @@ export const GpsLocationMap: React.FC<GpsLocationMapProps> = ({
       </div>
 
       {/* Map Embed Container */}
-      <div className="relative w-full h-[360px] rounded-xl overflow-hidden border border-white/20 shadow-inner bg-[#002824]">
+      <div className="relative w-full h-[360px] rounded-xl overflow-hidden border border-white/20 shadow-inner bg-[#112327]">
         <iframe
           title={`GPS Map for meter ${meter.meterId}`}
           width="100%"
@@ -204,11 +204,11 @@ export const GpsLocationMap: React.FC<GpsLocationMapProps> = ({
         />
 
         {/* Live HUD Overlay Badge */}
-        <div className="absolute top-3 left-3 px-3.5 py-2 rounded-xl bg-[#002b27]/95 backdrop-blur-md border border-white/25 shadow-xl text-xs font-mono pointer-events-none">
+        <div className="absolute top-3 left-3 px-3.5 py-2 rounded-xl bg-[#112327]/95 backdrop-blur-md border border-white/25 shadow-xl text-xs font-mono pointer-events-none">
           <div className="flex items-center space-x-2">
             <span className={`w-2.5 h-2.5 rounded-full ${meter.status === 'ONLINE' ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
             <span className="font-bold text-white">{meter.meterId}</span>
-            <span className="text-teal-200">({meter.status})</span>
+            <span className="text-white/75">({meter.status})</span>
           </div>
           <div className="text-[11px] text-white font-bold mt-0.5">
             Lat: {meter.latitude.toFixed(5)} | Lng: {meter.longitude.toFixed(5)}

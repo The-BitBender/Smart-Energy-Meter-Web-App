@@ -170,20 +170,20 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in overflow-y-auto">
-      <div className="relative w-full max-w-2xl rounded-3xl bg-[#003833] border-2 border-white/20 shadow-2xl p-6 sm:p-8 text-white my-8 max-h-[92vh] overflow-y-auto">
+      <div className="relative w-full max-w-2xl rounded-3xl bg-[#1a2d31] border-2 border-white/20 shadow-2xl p-6 sm:p-8 text-white my-8 max-h-[92vh] overflow-y-auto">
         
         {/* Glow accent */}
-        <div className="absolute top-0 right-1/4 -mt-10 w-40 h-40 bg-teal-400/20 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute top-0 right-1/4 -mt-10 w-40 h-40 bg-white/10 rounded-full blur-3xl pointer-events-none"></div>
 
         {/* Wizard Header */}
         <div className="flex items-start justify-between pb-6 border-b border-white/15">
           <div className="flex items-center space-x-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-white text-[#005149] flex items-center justify-center shadow-lg font-black shrink-0">
-              <Cpu className="w-7 h-7 text-[#005149]" />
+            <div className="w-12 h-12 rounded-2xl bg-white text-[#112327] flex items-center justify-center shadow-lg font-black shrink-0">
+              <Cpu className="w-7 h-7 text-[#112327]" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-teal-200 bg-white/10 px-2 py-0.5 rounded">
+                <span className="text-xs font-bold uppercase tracking-wider text-white/80 bg-[#1e373e] border border-white/15 px-2 py-0.5 rounded">
                   {step === 'configure' ? 'Setup: Step 1 of 2' : 'Setup: Step 2 of 2'}
                 </span>
                 <span className="text-xs text-emerald-400 font-mono font-bold flex items-center space-x-1">
@@ -194,7 +194,7 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
               <h2 className="text-xl sm:text-2xl font-black text-white mt-1">
                 {step === 'configure' ? 'Connect Your ESP32 Energy Meter' : 'Hardware Credentials Generated'}
               </h2>
-              <p className="text-xs text-teal-100/90 mt-0.5">
+              <p className="text-xs text-white/80 mt-0.5">
                 {step === 'configure'
                   ? `Welcome ${user?.displayName || user?.email || 'Operator'}! Provide your installation location to add your energy meter.`
                   : 'Meter registered successfully! Save your auto-generated credentials to flash your microcontroller.'}
@@ -215,7 +215,7 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
             
             {/* Friendly Display Name */}
             <div>
-              <label className="block text-xs font-bold text-teal-100 uppercase tracking-wide mb-1">
+              <label className="block text-xs font-bold text-white/90 uppercase tracking-wide mb-1">
                 Panel / Distribution Feeder Name
               </label>
               <input
@@ -223,14 +223,14 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Workshop Sub-Distribution Board"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-[#002f2b] border border-white/20 text-white text-sm focus:outline-hidden focus:border-white"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#112327] border border-white/20 text-white text-sm focus:outline-hidden focus:border-white"
                 required
               />
             </div>
 
             {/* Physical Installation Address */}
             <div>
-              <label className="block text-xs font-bold text-teal-100 uppercase tracking-wide mb-1">
+              <label className="block text-xs font-bold text-white/90 uppercase tracking-wide mb-1">
                 Physical Installation Address
               </label>
               <input
@@ -238,7 +238,7 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="e.g. Distribution Pole 14, Commercial Way"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-[#002f2b] border border-white/20 text-white text-sm focus:outline-hidden focus:border-white"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#112327] border border-white/20 text-white text-sm focus:outline-hidden focus:border-white"
                 required
               />
             </div>
@@ -246,15 +246,15 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
             {/* GPS Coordinates */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-bold text-teal-100 uppercase tracking-wide flex items-center space-x-1">
-                  <MapPin className="w-3.5 h-3.5 text-teal-300" />
+                <label className="text-xs font-bold text-white/90 uppercase tracking-wide flex items-center space-x-1">
+                  <MapPin className="w-3.5 h-3.5 text-white" />
                   <span>GPS Decimal Coordinates</span>
                 </label>
                 <button
                   type="button"
                   onClick={handleDetectGPS}
                   disabled={gpsDetecting}
-                  className="text-[11px] text-teal-200 hover:text-white font-bold flex items-center space-x-1 cursor-pointer"
+                  className="text-[11px] text-white/80 hover:text-white font-bold flex items-center space-x-1 cursor-pointer"
                 >
                   <MapPin className="w-3 h-3 text-emerald-300" />
                   <span>{gpsDetecting ? 'Detecting GPS...' : 'Use My Current Location'}</span>
@@ -268,7 +268,7 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
                   value={latitude}
                   onChange={(e) => setLatitude(e.target.value)}
                   placeholder="Latitude (e.g. 6.5244)"
-                  className="px-3.5 py-2 rounded-xl bg-[#002f2b] border border-white/20 text-white font-mono text-xs focus:outline-hidden focus:border-white"
+                  className="px-3.5 py-2 rounded-xl bg-[#112327] border border-white/20 text-white font-mono text-xs focus:outline-hidden focus:border-white"
                   required
                 />
                 <input
@@ -277,19 +277,19 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
                   value={longitude}
                   onChange={(e) => setLongitude(e.target.value)}
                   placeholder="Longitude (e.g. 3.3792)"
-                  className="px-3.5 py-2 rounded-xl bg-[#002f2b] border border-white/20 text-white font-mono text-xs focus:outline-hidden focus:border-white"
+                  className="px-3.5 py-2 rounded-xl bg-[#112327] border border-white/20 text-white font-mono text-xs focus:outline-hidden focus:border-white"
                   required
                 />
               </div>
             </div>
 
             {/* Informational Banner */}
-            <div className="p-4 rounded-2xl bg-[#002420] border border-teal-500/30 text-xs text-teal-100 space-y-1.5">
+            <div className="p-4 rounded-2xl bg-[#1e373e] border border-white/20 text-xs text-white/90 space-y-1.5">
               <div className="flex items-center space-x-2 text-emerald-300 font-bold">
                 <Sparkles className="w-4 h-4 text-emerald-400" />
                 <span>Auto-Generated Sequential Identifier &amp; 16-Char Secret Key</span>
               </div>
-              <p className="text-[11px] text-teal-200/80 leading-relaxed">
+              <p className="text-[11px] text-white/75 leading-relaxed">
                 Clicking <strong>Add Meter</strong> will assign the next sequential Meter ID (e.g., <strong>MTR-0001</strong>) based on total accounts, generate a 16-character secure API token, and initialize all dashboard values to zero.
               </p>
             </div>
@@ -299,9 +299,9 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full flex items-center justify-center space-x-2 py-3.5 px-6 rounded-2xl bg-white hover:bg-teal-50 text-[#005149] font-black text-sm transition-all shadow-xl active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+                className="w-full flex items-center justify-center space-x-2 py-3.5 px-6 rounded-2xl bg-white hover:bg-white/90 text-[#112327] font-black text-sm transition-all shadow-xl active:scale-[0.98] disabled:opacity-50 cursor-pointer"
               >
-                <Plus className="w-4 h-4 text-[#005149]" />
+                <Plus className="w-4 h-4 text-[#112327]" />
                 <span>{isLoading ? 'Creating Energy Meter...' : 'Add Meter'}</span>
               </button>
             </div>
@@ -327,10 +327,10 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               
               {/* Meter ID */}
-              <div className="p-4 rounded-2xl bg-[#002b27] border border-white/15 space-y-2">
-                <div className="flex items-center justify-between text-xs text-teal-200">
+              <div className="p-4 rounded-2xl bg-[#1e373e] border border-white/15 space-y-2">
+                <div className="flex items-center justify-between text-xs text-white/75">
                   <span className="font-semibold uppercase tracking-wider text-[10px]">Generated Meter ID</span>
-                  <span className="text-[10px] font-mono bg-white/10 px-1.5 py-0.5 rounded text-teal-200 font-bold">
+                  <span className="text-[10px] font-mono bg-[#112327] px-1.5 py-0.5 rounded text-white font-bold border border-white/15">
                     Sequential
                   </span>
                 </div>
@@ -341,20 +341,20 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
                   <button
                     type="button"
                     onClick={handleCopyId}
-                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-teal-200 transition-colors cursor-pointer"
+                    className="p-1.5 rounded-lg bg-[#112327] hover:bg-[#1a2d31] border border-white/15 text-white transition-colors cursor-pointer"
                     title="Copy Meter ID"
                   >
                     {copiedId ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                   </button>
                 </div>
-                <p className="text-[11px] text-teal-300/80">
+                <p className="text-[11px] text-white/70">
                   Assigned automatically based on total registered meters.
                 </p>
               </div>
 
               {/* API Key */}
-              <div className="p-4 rounded-2xl bg-[#002b27] border border-white/15 space-y-2">
-                <div className="flex items-center justify-between text-xs text-teal-200">
+              <div className="p-4 rounded-2xl bg-[#1e373e] border border-white/15 space-y-2">
+                <div className="flex items-center justify-between text-xs text-white/75">
                   <span className="font-semibold uppercase tracking-wider text-[10px]">Hardware Secret Key</span>
                   <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-bold border border-emerald-500/30">
                     16 Chars Fixed
@@ -367,46 +367,46 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
                   <button
                     type="button"
                     onClick={handleCopyKey}
-                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-teal-200 transition-colors shrink-0 cursor-pointer"
+                    className="p-1.5 rounded-lg bg-[#112327] hover:bg-[#1a2d31] border border-white/15 text-white transition-colors shrink-0 cursor-pointer"
                     title="Copy API Key"
                   >
                     {copiedKey ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                   </button>
                 </div>
-                <p className="text-[11px] text-teal-300/80">
+                <p className="text-[11px] text-white/70">
                   Auto-generated token. Never requires manual typing.
                 </p>
               </div>
             </div>
 
             {/* Zero Baseline Notification */}
-            <div className="p-3.5 rounded-xl bg-[#002420] border border-white/10 text-xs text-teal-100 flex items-start space-x-2.5">
+            <div className="p-3.5 rounded-xl bg-[#1e373e] border border-white/15 text-xs text-white/90 flex items-start space-x-2.5">
               <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
               <div className="space-y-0.5">
                 <div className="font-bold text-white">Clean Zero Baseline Initialization</div>
-                <div className="text-[11px] text-teal-200/80">
+                <div className="text-[11px] text-white/75">
                   All dashboard metrics start at <strong>0.0</strong> (0.0V, 0.0kW, 0.0A) in <strong>OFFLINE</strong> status until real-world hardware data is streamed.
                 </div>
               </div>
             </div>
 
             {/* Ready-to-Flash Arduino Code Snippet */}
-            <div className="rounded-2xl bg-[#001e1b] border border-white/15 p-4 space-y-2.5">
+            <div className="rounded-2xl bg-[#112327] border border-white/15 p-4 space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-teal-200 font-mono flex items-center space-x-1.5">
-                  <Terminal className="w-3.5 h-3.5 text-teal-300" />
+                <span className="text-xs font-bold text-white/85 font-mono flex items-center space-x-1.5">
+                  <Terminal className="w-3.5 h-3.5 text-white" />
                   <span>ESP32 Arduino Sketch Config (Ready to Flash)</span>
                 </span>
                 <button
                   type="button"
                   onClick={handleCopyCode}
-                  className="px-3 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-white font-mono text-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
+                  className="px-3 py-1 rounded-lg bg-[#1e373e] hover:bg-[#1a2d31] border border-white/15 text-white font-mono text-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
                 >
                   {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copiedCode ? 'Copied Config!' : 'Copy Code'}</span>
                 </button>
               </div>
-              <pre className="text-[11px] font-mono text-teal-100/90 p-3 bg-black/40 rounded-xl overflow-x-auto leading-relaxed border border-white/5">
+              <pre className="text-[11px] font-mono text-white/90 p-3 bg-black/40 rounded-xl overflow-x-auto leading-relaxed border border-white/5">
                 {firmwareSnippet}
               </pre>
             </div>
@@ -416,10 +416,10 @@ export const MeterOnboardingModal: React.FC<MeterOnboardingModalProps> = ({
               <button
                 type="button"
                 onClick={handleFinishOnboarding}
-                className="w-full flex items-center justify-center space-x-2 py-3.5 px-6 rounded-2xl bg-white hover:bg-teal-50 text-[#005149] font-black text-sm transition-all shadow-xl active:scale-[0.98] cursor-pointer"
+                className="w-full flex items-center justify-center space-x-2 py-3.5 px-6 rounded-2xl bg-white hover:bg-white/90 text-[#112327] font-black text-sm transition-all shadow-xl active:scale-[0.98] cursor-pointer"
               >
                 <span>Launch Live Energy Dashboard</span>
-                <ArrowRight className="w-4 h-4 text-[#005149]" />
+                <ArrowRight className="w-4 h-4 text-[#112327]" />
               </button>
             </div>
           </div>

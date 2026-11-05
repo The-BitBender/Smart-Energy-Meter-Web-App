@@ -2,16 +2,16 @@
 
 @layer base {
   :root {
-    --teal-bg: #003833;
-    --teal-surface: #005149;
-    --teal-surface-hover: #005f56;
-    --teal-dark: #002824;
-    --teal-border: rgba(255, 255, 255, 0.15);
+    --theme-deep: #112327;
+    --theme-mid: #1a2d31;
+    --theme-surface: #1e373e;
+    --theme-white: #ffffff;
+    --theme-border: rgba(255, 255, 255, 0.15);
   }
 
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-    background-color: #003833;
+    background-color: #112327;
     color: #ffffff;
   }
   
@@ -20,16 +20,16 @@
   }
 }
 
-/* Custom scrollbars with teal green and white accents */
+/* Custom scrollbars with #112327, #1a2d31, #1e373e and white accents */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #002b27;
+  background: #112327;
 }
 ::-webkit-scrollbar-thumb {
-  background: #007065;
+  background: #1e373e;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {

@@ -141,19 +141,19 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in">
-      <div className="w-full max-w-lg rounded-2xl bg-[#003833] border border-white/20 shadow-2xl p-6 text-white max-h-[92vh] overflow-y-auto">
+      <div className="w-full max-w-lg rounded-2xl bg-[#1a2d31] border border-white/20 shadow-2xl p-6 text-white max-h-[92vh] overflow-y-auto">
         
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-white/15">
           <div className="flex items-center space-x-2.5">
-            <div className="p-2.5 rounded-xl bg-white text-[#005149] shadow-md">
-              <Cpu className="w-5 h-5 text-[#005149]" />
+            <div className="p-2.5 rounded-xl bg-white text-[#112327] shadow-md">
+              <Cpu className="w-5 h-5 text-[#112327]" />
             </div>
             <div>
               <h3 className="text-base font-bold text-white">
                 {step === 'form' ? 'Add New Energy Meter' : 'Hardware Credentials Generated'}
               </h3>
-              <p className="text-xs text-teal-200">
+              <p className="text-xs text-white/75">
                 {step === 'form'
                   ? 'Configure installation location and site metadata'
                   : 'Hardware authentication credentials generated successfully'}
@@ -162,7 +162,7 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-teal-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="p-1 rounded-lg text-white/75 hover:text-white hover:bg-[#1e373e] transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -180,7 +180,7 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
             
             {/* Friendly Display Name */}
             <div>
-              <label className="text-xs font-bold text-teal-100 uppercase tracking-wide block mb-1">
+              <label className="text-xs font-bold text-white/90 uppercase tracking-wide block mb-1">
                 Panel / Installation Name
               </label>
               <input
@@ -188,14 +188,14 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Substation Feeder 1"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-[#002f2b] border border-white/20 text-white text-sm focus:outline-hidden focus:border-white"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#112327] border border-white/20 text-white text-sm focus:outline-hidden focus:border-white"
                 required
               />
             </div>
 
             {/* Site Physical Address */}
             <div>
-              <label className="text-xs font-bold text-teal-100 uppercase tracking-wide block mb-1">
+              <label className="text-xs font-bold text-white/90 uppercase tracking-wide block mb-1">
                 Site Physical Address
               </label>
               <input
@@ -203,7 +203,7 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="e.g. Distribution Pole 14, Commercial Area"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-[#002f2b] border border-white/20 text-white text-xs focus:outline-hidden focus:border-white"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#112327] border border-white/20 text-white text-xs focus:outline-hidden focus:border-white"
                 required
               />
             </div>
@@ -211,15 +211,15 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
             {/* Coordinates */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-bold text-teal-100 uppercase tracking-wide flex items-center space-x-1">
-                  <MapPin className="w-3.5 h-3.5 text-teal-300" />
+                <label className="text-xs font-bold text-white/90 uppercase tracking-wide flex items-center space-x-1">
+                  <MapPin className="w-3.5 h-3.5 text-white" />
                   <span>GPS Decimal Coordinates</span>
                 </label>
                 <button
                   type="button"
                   onClick={handleDetectGPS}
                   disabled={gpsDetecting}
-                  className="text-[11px] text-teal-200 hover:text-white font-bold flex items-center space-x-1 cursor-pointer"
+                  className="text-[11px] text-white/80 hover:text-white font-bold flex items-center space-x-1 cursor-pointer"
                 >
                   <MapPin className="w-3 h-3 text-emerald-300" />
                   <span>{gpsDetecting ? 'Detecting GPS...' : 'Use My Location'}</span>
@@ -233,7 +233,7 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
                   value={latitude}
                   onChange={(e) => setLatitude(e.target.value)}
                   placeholder="Latitude"
-                  className="w-full px-3 py-2 rounded-lg bg-[#002f2b] border border-white/20 text-white font-mono text-xs focus:outline-hidden focus:border-white"
+                  className="w-full px-3 py-2 rounded-lg bg-[#112327] border border-white/20 text-white font-mono text-xs focus:outline-hidden focus:border-white"
                   required
                 />
                 <input
@@ -242,19 +242,19 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
                   value={longitude}
                   onChange={(e) => setLongitude(e.target.value)}
                   placeholder="Longitude"
-                  className="w-full px-3 py-2 rounded-lg bg-[#002f2b] border border-white/20 text-white font-mono text-xs focus:outline-hidden focus:border-white"
+                  className="w-full px-3 py-2 rounded-lg bg-[#112327] border border-white/20 text-white font-mono text-xs focus:outline-hidden focus:border-white"
                   required
                 />
               </div>
             </div>
 
             {/* Information Notice */}
-            <div className="p-3.5 rounded-xl bg-[#002420] border border-teal-500/30 text-xs text-teal-100 space-y-1">
+            <div className="p-3.5 rounded-xl bg-[#1e373e] border border-white/20 text-xs text-white/90 space-y-1">
               <div className="flex items-center space-x-1.5 font-bold text-emerald-300 text-[11px]">
                 <ShieldCheck className="w-4 h-4" />
                 <span>Automated Hardware Provisioning</span>
               </div>
-              <p className="text-[11px] text-teal-200/80 leading-relaxed">
+              <p className="text-[11px] text-white/75 leading-relaxed">
                 When you click <strong>Add Meter</strong>, a sequential <strong>Meter ID (MTR-XXXX)</strong> and a secure <strong>16-character API Key</strong> will be automatically generated and displayed for flashing your ESP32 firmware.
               </p>
             </div>
@@ -264,16 +264,16 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-[#1e373e] hover:bg-[#112327] border border-white/15 text-white text-xs font-bold transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isLoading}
-                className="flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-white hover:bg-teal-50 text-[#005149] text-xs font-black transition-all shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
+                className="flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-white hover:bg-white/90 text-[#112327] text-xs font-black transition-all shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
               >
-                <Plus className="w-4 h-4 text-[#005149]" />
+                <Plus className="w-4 h-4 text-[#112327]" />
                 <span>{isLoading ? 'Creating Meter...' : 'Add Meter'}</span>
               </button>
             </div>
@@ -296,22 +296,22 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
             </div>
 
             {/* Credentials Card (Revealed ONLY after clicking Add meter) */}
-            <div className="p-4 rounded-xl bg-[#002420] border border-teal-500/40 space-y-3.5">
+            <div className="p-4 rounded-xl bg-[#1e373e] border border-white/20 space-y-3.5">
               
               {/* Meter ID */}
               <div>
-                <div className="flex items-center justify-between text-xs text-teal-200 mb-1">
+                <div className="flex items-center justify-between text-xs text-white/75 mb-1">
                   <span className="font-semibold uppercase tracking-wider text-[10px]">Generated Meter ID</span>
-                  <span className="text-[10px] font-mono bg-white/10 px-2 py-0.5 rounded text-teal-200 font-bold">
+                  <span className="text-[10px] font-mono bg-[#112327] px-2 py-0.5 rounded text-white font-bold border border-white/15">
                     Sequential
                   </span>
                 </div>
-                <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-[#001c18] border border-white/15 font-mono text-sm">
+                <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-[#112327] border border-white/15 font-mono text-sm">
                   <span className="text-white font-black tracking-wider text-base">{createdMeter.meterId}</span>
                   <button
                     type="button"
                     onClick={handleCopyId}
-                    className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-teal-200 text-xs font-sans font-bold flex items-center space-x-1 transition-colors cursor-pointer"
+                    className="px-2.5 py-1 rounded-lg bg-[#1a2d31] hover:bg-[#1e373e] border border-white/15 text-white text-xs font-sans font-bold flex items-center space-x-1 transition-colors cursor-pointer"
                   >
                     {copiedId ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     <span>{copiedId ? 'Copied' : 'Copy ID'}</span>
@@ -321,18 +321,18 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
 
               {/* API Key */}
               <div>
-                <div className="flex items-center justify-between text-xs text-teal-200 mb-1">
+                <div className="flex items-center justify-between text-xs text-white/75 mb-1">
                   <span className="font-semibold uppercase tracking-wider text-[10px]">Hardware API Key</span>
                   <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-bold border border-emerald-500/30">
                     16 Chars Fixed
                   </span>
                 </div>
-                <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-[#001c18] border border-white/15 font-mono text-xs">
+                <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-[#112327] border border-white/15 font-mono text-xs">
                   <span className="text-emerald-300 font-bold tracking-wider">{createdMeter.apiKey}</span>
                   <button
                     type="button"
                     onClick={handleCopyKey}
-                    className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-teal-200 text-xs font-sans font-bold flex items-center space-x-1 transition-colors cursor-pointer"
+                    className="px-2.5 py-1 rounded-lg bg-[#1a2d31] hover:bg-[#1e373e] border border-white/15 text-white text-xs font-sans font-bold flex items-center space-x-1 transition-colors cursor-pointer"
                   >
                     {copiedKey ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     <span>{copiedKey ? 'Copied' : 'Copy Key'}</span>
@@ -341,29 +341,29 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
               </div>
 
               {/* Baseline Zero Note */}
-              <div className="text-[11px] text-teal-300/80 pt-1 border-t border-white/10 flex items-center justify-between">
+              <div className="text-[11px] text-white/75 pt-1 border-t border-white/10 flex items-center justify-between">
                 <span>Dashboard Baseline:</span>
                 <span className="font-mono font-bold text-white">0.0V • 0.0kW • OFFLINE</span>
               </div>
             </div>
 
             {/* Firmware Snippet */}
-            <div className="rounded-xl bg-[#001c18] border border-white/15 p-3 space-y-2">
-              <div className="flex items-center justify-between text-xs text-teal-200">
+            <div className="rounded-xl bg-[#112327] border border-white/15 p-3 space-y-2">
+              <div className="flex items-center justify-between text-xs text-white/80">
                 <span className="font-mono text-[11px] flex items-center space-x-1">
-                  <Terminal className="w-3.5 h-3.5 text-teal-300" />
+                  <Terminal className="w-3.5 h-3.5 text-white" />
                   <span>Arduino C++ Config</span>
                 </span>
                 <button
                   type="button"
                   onClick={handleCopySnippet}
-                  className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white font-mono text-[11px] flex items-center space-x-1 transition-colors cursor-pointer"
+                  className="px-2 py-0.5 rounded bg-[#1e373e] hover:bg-[#1a2d31] border border-white/15 text-white font-mono text-[11px] flex items-center space-x-1 transition-colors cursor-pointer"
                 >
                   {copiedSnippet ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                   <span>{copiedSnippet ? 'Copied' : 'Copy'}</span>
                 </button>
               </div>
-              <pre className="text-[10px] font-mono text-teal-100/90 p-2.5 bg-black/40 rounded-lg overflow-x-auto leading-relaxed border border-white/5">
+              <pre className="text-[10px] font-mono text-white/90 p-2.5 bg-black/40 rounded-lg overflow-x-auto leading-relaxed border border-white/5">
                 {firmwareSnippet}
               </pre>
             </div>
@@ -373,10 +373,10 @@ export const LinkMeterModal: React.FC<LinkMeterModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="w-full flex items-center justify-center space-x-2 py-3 px-6 rounded-xl bg-white hover:bg-teal-50 text-[#005149] font-black text-sm transition-all shadow-xl active:scale-[0.98] cursor-pointer"
+                className="w-full flex items-center justify-center space-x-2 py-3 px-6 rounded-xl bg-white hover:bg-white/90 text-[#112327] font-black text-sm transition-all shadow-xl active:scale-[0.98] cursor-pointer"
               >
                 <span>Open Dashboard</span>
-                <ArrowRight className="w-4 h-4 text-[#005149]" />
+                <ArrowRight className="w-4 h-4 text-[#112327]" />
               </button>
             </div>
           </div>

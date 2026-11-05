@@ -9,7 +9,6 @@ import {
   Eye, 
   EyeOff, 
   AlertTriangle, 
-  ShieldAlert, 
   Bell, 
   Mail, 
   Cpu, 
@@ -17,13 +16,7 @@ import {
   MapPin, 
   Save, 
   CheckCircle2, 
-  Flame, 
-  Zap, 
-  Activity, 
-  Wifi, 
-  WifiOff, 
   Terminal, 
-  ChevronRight,
   HelpCircle
 } from 'lucide-react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -321,10 +314,10 @@ res.close()`;
 
   if (!currentMeter) {
     return (
-      <div className="p-8 sm:p-12 rounded-3xl bg-[#003833] border border-white/20 text-center shadow-xl max-w-xl mx-auto my-12">
-        <Cpu className="w-12 h-12 text-teal-300 mx-auto mb-4" />
+      <div className="p-8 sm:p-12 rounded-3xl bg-[#1e373e] border border-white/20 text-center shadow-xl max-w-xl mx-auto my-12">
+        <Cpu className="w-12 h-12 text-white mx-auto mb-4" />
         <h3 className="text-xl font-bold text-white mb-2">No Meter Selected</h3>
-        <p className="text-sm text-teal-200">Connect or link a meter on the dashboard to configure settings.</p>
+        <p className="text-sm text-white/75">Connect or link a meter on the dashboard to configure settings.</p>
       </div>
     );
   }
@@ -338,15 +331,15 @@ res.close()`;
             <Settings className="w-6 h-6 text-white" />
             <h1 className="text-2xl font-black text-white tracking-tight">Meter &amp; Security Settings</h1>
           </div>
-          <p className="text-xs text-teal-200 mt-1">
+          <p className="text-xs text-white/75 mt-1">
             Manage hardware credentials, API authentication keys, telemetry ingest security, and notification rules.
           </p>
         </div>
 
         {/* Meter Selector Dropdown */}
-        <div className="flex items-center space-x-2 bg-[#003833] p-1.5 rounded-xl border border-white/20">
-          <Radio className="w-4 h-4 text-teal-300 ml-2" />
-          <span className="text-xs text-teal-200 font-bold">Target Meter:</span>
+        <div className="flex items-center space-x-2 bg-[#1e373e] p-1.5 rounded-xl border border-white/20">
+          <Radio className="w-4 h-4 text-white ml-2" />
+          <span className="text-xs text-white/80 font-bold">Target Meter:</span>
           <select
             value={currentMeter.meterId}
             onChange={(e) => {
@@ -354,7 +347,7 @@ res.close()`;
               if (selected) onSelectMeter(selected);
             }}
             aria-label="Select Target Meter"
-            className="bg-[#002b27] text-white text-xs font-mono font-bold px-3 py-1.5 rounded-lg border border-white/20 focus:outline-hidden focus:ring-2 focus:ring-white"
+            className="bg-[#112327] text-white text-xs font-mono font-bold px-3 py-1.5 rounded-lg border border-white/20 focus:outline-hidden focus:ring-2 focus:ring-white"
           >
             {meters.map(m => (
               <option key={m.meterId} value={m.meterId}>
@@ -369,16 +362,16 @@ res.close()`;
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* CARD 1: Hardware Credentials & API Key Management */}
-        <div className="p-6 rounded-2xl bg-[#003833] border border-white/15 shadow-xl flex flex-col justify-between space-y-6">
+        <div className="p-6 rounded-2xl bg-[#1e373e] border border-white/15 shadow-xl flex flex-col justify-between space-y-6">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2.5">
-                <div className="p-2 rounded-xl bg-white text-[#005149]">
-                  <Key className="w-5 h-5 text-[#005149]" />
+                <div className="p-2 rounded-xl bg-white text-[#112327]">
+                  <Key className="w-5 h-5 text-[#112327]" />
                 </div>
                 <div>
                   <h3 className="text-base font-black text-white">API Ingestion Key</h3>
-                  <p className="text-xs text-teal-200">Strict authentication token required for ESP32 streams</p>
+                  <p className="text-xs text-white/75">Strict authentication token required for ESP32 streams</p>
                 </div>
               </div>
               <span className="text-[10px] uppercase font-mono font-black px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-300 border border-emerald-500/30">
@@ -386,19 +379,19 @@ res.close()`;
               </span>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-[#002824] border border-white/10 space-y-2">
-              <div className="flex items-center justify-between text-xs text-teal-200">
+            <div className="p-3.5 rounded-xl bg-[#1a2d31] border border-white/10 space-y-2">
+              <div className="flex items-center justify-between text-xs text-white/75">
                 <span className="font-semibold">Current API Key:</span>
-                <span className="text-[10px] text-teal-300/80 font-mono">16-char token</span>
+                <span className="text-[10px] text-white/60 font-mono">16-char token</span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className="flex-1 bg-[#001d1a] border border-white/15 px-3 py-2 rounded-lg font-mono text-sm tracking-wider text-white font-bold select-all overflow-x-auto">
+                <div className="flex-1 bg-[#112327] border border-white/15 px-3 py-2 rounded-lg font-mono text-sm tracking-wider text-white font-bold select-all overflow-x-auto">
                   {showKey ? currentMeter.apiKey : '•'.repeat(Math.min(24, currentMeter.apiKey.length || 18))}
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowKey(!showKey)}
-                  className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors border border-white/15"
+                  className="p-2 rounded-lg bg-[#1e373e] hover:bg-[#112327] text-white transition-colors border border-white/15"
                   title={showKey ? 'Mask API Key' : 'Reveal API Key'}
                 >
                   {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -406,17 +399,17 @@ res.close()`;
                 <button
                   type="button"
                   onClick={handleCopyKey}
-                  className="p-2 rounded-lg bg-white hover:bg-teal-50 text-[#005149] transition-all font-bold shadow-xs flex items-center space-x-1"
+                  className="p-2 rounded-lg bg-white hover:bg-white/90 text-[#112327] transition-all font-bold shadow-xs flex items-center space-x-1"
                   title="Copy API Key"
                 >
-                  {copiedKey ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-[#005149]" />}
+                  {copiedKey ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-[#112327]" />}
                 </button>
               </div>
             </div>
 
-            <div className="text-xs text-teal-200/90 leading-relaxed space-y-1.5 bg-[#002e2a] p-3 rounded-xl border border-white/10">
+            <div className="text-xs text-white/80 leading-relaxed space-y-1.5 bg-[#1a2d31] p-3 rounded-xl border border-white/10">
               <div className="flex items-start space-x-2">
-                <HelpCircle className="w-4 h-4 text-teal-300 shrink-0 mt-0.5" />
+                <HelpCircle className="w-4 h-4 text-white shrink-0 mt-0.5" />
                 <span>
                   <strong>Strict Security Rule:</strong> Ingestion endpoint strictly validates that the meter ID exists and matches this API key. Payloads with missing/wrong keys or non-existent meter IDs are rejected with <strong>401 Unauthorized</strong> or <strong>404 Not Found</strong>.
                 </span>
@@ -428,24 +421,24 @@ res.close()`;
             <button
               type="button"
               onClick={() => setIsRotateModalOpen(true)}
-              className="w-full py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold text-xs flex items-center justify-center space-x-2 transition-all active:scale-98"
+              className="w-full py-2.5 px-4 rounded-xl bg-[#1a2d31] hover:bg-[#112327] text-white border border-white/20 font-bold text-xs flex items-center justify-center space-x-2 transition-all active:scale-98"
             >
-              <RefreshCw className="w-4 h-4 text-teal-300" />
+              <RefreshCw className="w-4 h-4 text-white" />
               <span>Rotate / Generate New API Key</span>
             </button>
           </div>
         </div>
 
         {/* CARD 2: Meter Profile & Physical Location */}
-        <div className="p-6 rounded-2xl bg-[#003833] border border-white/15 shadow-xl space-y-5">
+        <div className="p-6 rounded-2xl bg-[#1e373e] border border-white/15 shadow-xl space-y-5">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2.5">
-              <div className="p-2 rounded-xl bg-white text-[#005149]">
-                <Cpu className="w-5 h-5 text-[#005149]" />
+              <div className="p-2 rounded-xl bg-white text-[#112327]">
+                <Cpu className="w-5 h-5 text-[#112327]" />
               </div>
               <div>
                 <h3 className="text-base font-black text-white">Hardware Identity</h3>
-                <p className="text-xs text-teal-200">Device name, identifier, and connection point</p>
+                <p className="text-xs text-white/75">Device name, identifier, and connection point</p>
               </div>
             </div>
 
@@ -466,17 +459,17 @@ res.close()`;
 
           <form onSubmit={handleSaveDetails} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-teal-200 mb-1">
+              <label className="block text-xs font-semibold text-white/75 mb-1">
                 Meter ID (Hardware Identifier)
               </label>
-              <div className="flex items-center justify-between bg-[#002824] px-3.5 py-2 rounded-lg border border-white/10">
+              <div className="flex items-center justify-between bg-[#1a2d31] px-3.5 py-2 rounded-lg border border-white/10">
                 <span className="font-mono text-sm font-black text-white">{currentMeter.meterId}</span>
-                <span className="text-[11px] text-teal-300 font-mono">Immutable</span>
+                <span className="text-[11px] text-white/60 font-mono">Immutable</span>
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-teal-200 mb-1">
+              <label className="block text-xs font-semibold text-white/75 mb-1">
                 Display Name / Panel Label
               </label>
               <input
@@ -484,35 +477,35 @@ res.close()`;
                 value={meterName}
                 onChange={(e) => setMeterName(e.target.value)}
                 placeholder="e.g. Workshop Feeder Panel A"
-                className="w-full bg-[#002420] text-white text-xs px-3.5 py-2.5 rounded-lg border border-white/20 focus:outline-hidden focus:ring-2 focus:ring-white font-medium"
+                className="w-full bg-[#112327] text-white text-xs px-3.5 py-2.5 rounded-lg border border-white/20 focus:outline-hidden focus:ring-2 focus:ring-white font-medium"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-teal-200 mb-1">
+              <label className="block text-xs font-semibold text-white/75 mb-1">
                 Installation Location / Substation
               </label>
               <div className="relative">
-                <MapPin className="w-4 h-4 text-teal-300 absolute left-3 top-3" />
+                <MapPin className="w-4 h-4 text-white/70 absolute left-3 top-3" />
                 <input
                   type="text"
                   value={meterAddress}
                   onChange={(e) => setMeterAddress(e.target.value)}
                   placeholder="e.g. Substation 4, Plot 12 Commercial Way, Lagos"
-                  className="w-full bg-[#002420] text-white text-xs pl-9 pr-3.5 py-2.5 rounded-lg border border-white/20 focus:outline-hidden focus:ring-2 focus:ring-white font-medium"
+                  className="w-full bg-[#112327] text-white text-xs pl-9 pr-3.5 py-2.5 rounded-lg border border-white/20 focus:outline-hidden focus:ring-2 focus:ring-white font-medium"
                 />
               </div>
             </div>
 
             <div className="flex items-center justify-between pt-1">
-              <span className="text-[11px] text-teal-300 font-mono">
+              <span className="text-[11px] text-white/70 font-mono">
                 GPS: {currentMeter.latitude.toFixed(4)}, {currentMeter.longitude.toFixed(4)}
               </span>
               <button
                 type="submit"
                 disabled={isUpdatingDetails}
-                className="px-4 py-2 rounded-lg bg-white hover:bg-teal-50 text-[#005149] text-xs font-black transition-all flex items-center space-x-1.5 shadow-sm active:scale-95 disabled:opacity-50"
+                className="px-4 py-2 rounded-lg bg-white hover:bg-white/90 text-[#112327] text-xs font-black transition-all flex items-center space-x-1.5 shadow-sm active:scale-95 disabled:opacity-50"
               >
                 {detailsSaved ? (
                   <>
@@ -521,7 +514,7 @@ res.close()`;
                   </>
                 ) : (
                   <>
-                    <Save className="w-4 h-4 text-[#005149]" />
+                    <Save className="w-4 h-4 text-[#112327]" />
                     <span>{isUpdatingDetails ? 'Saving...' : 'Save Profile'}</span>
                   </>
                 )}
@@ -532,25 +525,25 @@ res.close()`;
       </div>
 
       {/* CARD 3: Quick Firmware & Integration Snippets */}
-      <div className="p-6 rounded-2xl bg-[#003833] border border-white/15 shadow-xl space-y-4">
+      <div className="p-6 rounded-2xl bg-[#1e373e] border border-white/15 shadow-xl space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex items-center space-x-2.5">
-            <div className="p-2 rounded-xl bg-white text-[#005149]">
-              <Terminal className="w-5 h-5 text-[#005149]" />
+            <div className="p-2 rounded-xl bg-white text-[#112327]">
+              <Terminal className="w-5 h-5 text-[#112327]" />
             </div>
             <div>
               <h3 className="text-base font-black text-white">Firmware Integration Snippet</h3>
-              <p className="text-xs text-teal-200">Copy-paste this payload directly into your hardware sketch or test script</p>
+              <p className="text-xs text-white/75">Copy-paste this payload directly into your hardware sketch or test script</p>
             </div>
           </div>
 
           <div className="flex items-center space-x-2">
-            <div className="flex bg-[#002622] p-1 rounded-lg border border-white/10 text-xs">
+            <div className="flex bg-[#112327] p-1 rounded-lg border border-white/15 text-xs">
               <button
                 type="button"
                 onClick={() => setCodeTab('curl')}
                 className={`px-3 py-1 rounded-md font-bold transition-colors ${
-                  codeTab === 'curl' ? 'bg-white text-[#005149]' : 'text-teal-200 hover:text-white'
+                  codeTab === 'curl' ? 'bg-white text-[#112327]' : 'text-white/75 hover:text-white'
                 }`}
               >
                 cURL
@@ -559,7 +552,7 @@ res.close()`;
                 type="button"
                 onClick={() => setCodeTab('arduino')}
                 className={`px-3 py-1 rounded-md font-bold transition-colors ${
-                  codeTab === 'arduino' ? 'bg-white text-[#005149]' : 'text-teal-200 hover:text-white'
+                  codeTab === 'arduino' ? 'bg-white text-[#112327]' : 'text-white/75 hover:text-white'
                 }`}
               >
                 ESP32 (C++)
@@ -568,7 +561,7 @@ res.close()`;
                 type="button"
                 onClick={() => setCodeTab('micropython')}
                 className={`px-3 py-1 rounded-md font-bold transition-colors ${
-                  codeTab === 'micropython' ? 'bg-white text-[#005149]' : 'text-teal-200 hover:text-white'
+                  codeTab === 'micropython' ? 'bg-white text-[#112327]' : 'text-white/75 hover:text-white'
                 }`}
               >
                 MicroPython
@@ -578,7 +571,7 @@ res.close()`;
             <button
               type="button"
               onClick={handleCopyCode}
-              className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors flex items-center space-x-1.5 border border-white/20"
+              className="px-3 py-1.5 rounded-lg bg-[#1a2d31] hover:bg-[#112327] text-white text-xs font-bold transition-colors flex items-center space-x-1.5 border border-white/20"
             >
               {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
               <span>{copiedCode ? 'Copied' : 'Copy'}</span>
@@ -586,21 +579,21 @@ res.close()`;
           </div>
         </div>
 
-        <pre className="p-4 rounded-xl bg-[#001d1a] border border-white/15 text-teal-100 font-mono text-xs overflow-x-auto leading-relaxed select-all">
+        <pre className="p-4 rounded-xl bg-[#112327] border border-white/15 text-white/90 font-mono text-xs overflow-x-auto leading-relaxed select-all">
           {getActiveCode()}
         </pre>
       </div>
 
       {/* CARD 4: Email Notifications & Anomaly Dispatch Rules */}
-      <div className="p-6 rounded-2xl bg-[#003833] border border-white/15 shadow-xl space-y-6">
+      <div className="p-6 rounded-2xl bg-[#1e373e] border border-white/15 shadow-xl space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-white/10 gap-2">
           <div className="flex items-center space-x-2.5">
-            <div className="p-2 rounded-xl bg-white text-[#005149]">
-              <Bell className="w-5 h-5 text-[#005149]" />
+            <div className="p-2 rounded-xl bg-white text-[#112327]">
+              <Bell className="w-5 h-5 text-[#112327]" />
             </div>
             <div>
               <h3 className="text-base font-black text-white">Real-Time Email Alert Rules</h3>
-              <p className="text-xs text-teal-200">Instant notification when meter tampering or electrical surges occur</p>
+              <p className="text-xs text-white/75">Instant notification when meter tampering or electrical surges occur</p>
             </div>
           </div>
 
@@ -609,7 +602,7 @@ res.close()`;
               type="button"
               onClick={handleSendTestNotification}
               disabled={testSent}
-              className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-colors border border-white/20"
+              className="px-3 py-1.5 rounded-lg bg-[#1a2d31] hover:bg-[#112327] text-white text-xs font-semibold transition-colors border border-white/20"
             >
               {testSent ? '✓ Test Alert Sent' : 'Send Test Alert'}
             </button>
@@ -617,7 +610,7 @@ res.close()`;
               type="button"
               onClick={handleSavePreferences}
               disabled={isSavingPrefs}
-              className="px-4 py-1.5 rounded-lg bg-white hover:bg-teal-50 text-[#005149] text-xs font-black transition-all flex items-center space-x-1.5 shadow-sm"
+              className="px-4 py-1.5 rounded-lg bg-white hover:bg-white/90 text-[#112327] text-xs font-black transition-all flex items-center space-x-1.5 shadow-sm"
             >
               {prefsSaved ? (
                 <>
@@ -626,7 +619,7 @@ res.close()`;
                 </>
               ) : (
                 <>
-                  <Save className="w-3.5 h-3.5 text-[#005149]" />
+                  <Save className="w-3.5 h-3.5 text-[#112327]" />
                   <span>{isSavingPrefs ? 'Saving...' : 'Save Rules'}</span>
                 </>
               )}
@@ -637,30 +630,30 @@ res.close()`;
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-teal-200 mb-1">
+              <label className="block text-xs font-semibold text-white/75 mb-1">
                 Dispatch Alert Email Address
               </label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-teal-300 absolute left-3 top-3" />
+                <Mail className="w-4 h-4 text-white/70 absolute left-3 top-3" />
                 <input
                   type="email"
                   value={preferences.alertEmail}
                   onChange={(e) => setPreferences({ ...preferences, alertEmail: e.target.value })}
                   placeholder="engineer@gridutility.com"
-                  className="w-full bg-[#002420] text-white text-xs pl-9 pr-3.5 py-2.5 rounded-lg border border-white/20 focus:outline-hidden focus:ring-2 focus:ring-white font-medium"
+                  className="w-full bg-[#112327] text-white text-xs pl-9 pr-3.5 py-2.5 rounded-lg border border-white/20 focus:outline-hidden focus:ring-2 focus:ring-white font-medium"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-teal-200 mb-1">
+              <label className="block text-xs font-semibold text-white/75 mb-1">
                 Minimum Alert Severity Threshold
               </label>
               <select
                 value={preferences.minimumSeverity}
                 onChange={(e) => setPreferences({ ...preferences, minimumSeverity: e.target.value as AnomalySeverity })}
                 aria-label="Minimum Alert Severity Threshold"
-                className="w-full bg-[#002420] text-white text-xs px-3.5 py-2.5 rounded-lg border border-white/20 focus:outline-hidden focus:ring-2 focus:ring-white font-medium"
+                className="w-full bg-[#112327] text-white text-xs px-3.5 py-2.5 rounded-lg border border-white/20 focus:outline-hidden focus:ring-2 focus:ring-white font-medium"
               >
                 <option value="LOW">LOW — Notify on all grid events &amp; minor shifts</option>
                 <option value="MEDIUM">MEDIUM — Notify on frequency/power factor deviations</option>
@@ -670,7 +663,7 @@ res.close()`;
             </div>
           </div>
 
-          <div className="space-y-3 bg-[#002622] p-4 rounded-xl border border-white/10">
+          <div className="space-y-3 bg-[#1a2d31] p-4 rounded-xl border border-white/10">
             <span className="text-xs font-bold text-white block mb-1">Monitored Anomalies</span>
 
             <label className="flex items-center space-x-3 cursor-pointer select-none">
@@ -678,9 +671,9 @@ res.close()`;
                 type="checkbox"
                 checked={preferences.notifyCriticalTheft}
                 onChange={(e) => setPreferences({ ...preferences, notifyCriticalTheft: e.target.checked })}
-                className="w-4 h-4 rounded-sm text-[#005149] focus:ring-0 cursor-pointer"
+                className="w-4 h-4 rounded-sm accent-white focus:ring-0 cursor-pointer"
               />
-              <span className="text-xs text-teal-100 font-medium">Critical Theft &amp; Line Bypass Tampering</span>
+              <span className="text-xs text-white/90 font-medium">Critical Theft &amp; Line Bypass Tampering</span>
             </label>
 
             <label className="flex items-center space-x-3 cursor-pointer select-none">
@@ -688,9 +681,9 @@ res.close()`;
                 type="checkbox"
                 checked={preferences.notifyOvercurrentSurge}
                 onChange={(e) => setPreferences({ ...preferences, notifyOvercurrentSurge: e.target.checked })}
-                className="w-4 h-4 rounded-sm text-[#005149] focus:ring-0 cursor-pointer"
+                className="w-4 h-4 rounded-sm accent-white focus:ring-0 cursor-pointer"
               />
-              <span className="text-xs text-teal-100 font-medium">Overcurrent Surge &amp; Fire Hazard Overload</span>
+              <span className="text-xs text-white/90 font-medium">Overcurrent Surge &amp; Fire Hazard Overload</span>
             </label>
 
             <label className="flex items-center space-x-3 cursor-pointer select-none">
@@ -698,9 +691,9 @@ res.close()`;
                 type="checkbox"
                 checked={preferences.notifyVoltageSag}
                 onChange={(e) => setPreferences({ ...preferences, notifyVoltageSag: e.target.checked })}
-                className="w-4 h-4 rounded-sm text-[#005149] focus:ring-0 cursor-pointer"
+                className="w-4 h-4 rounded-sm accent-white focus:ring-0 cursor-pointer"
               />
-              <span className="text-xs text-teal-100 font-medium">Severe Voltage Sag Under High Load</span>
+              <span className="text-xs text-white/90 font-medium">Severe Voltage Sag Under High Load</span>
             </label>
 
             <label className="flex items-center space-x-3 cursor-pointer select-none">
@@ -708,9 +701,9 @@ res.close()`;
                 type="checkbox"
                 checked={preferences.notifyOfflineHeartbeat}
                 onChange={(e) => setPreferences({ ...preferences, notifyOfflineHeartbeat: e.target.checked })}
-                className="w-4 h-4 rounded-sm text-[#005149] focus:ring-0 cursor-pointer"
+                className="w-4 h-4 rounded-sm accent-white focus:ring-0 cursor-pointer"
               />
-              <span className="text-xs text-teal-100 font-medium">Meter Heartbeat Timeout (ESP32 Goes Offline)</span>
+              <span className="text-xs text-white/90 font-medium">Meter Heartbeat Timeout (ESP32 Goes Offline)</span>
             </label>
           </div>
         </div>
@@ -780,14 +773,14 @@ res.close()`;
       {/* MODAL 1: Rotate / Change API Key */}
       {isRotateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-[#003833] border border-white/20 p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+          <div className="w-full max-w-md rounded-2xl bg-[#1a2d31] border border-white/20 p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
             <div className="flex items-center space-x-3 text-white">
-              <div className="p-2 rounded-xl bg-white text-[#005149]">
-                <RefreshCw className="w-5 h-5 text-[#005149]" />
+              <div className="p-2 rounded-xl bg-white text-[#112327]">
+                <RefreshCw className="w-5 h-5 text-[#112327]" />
               </div>
               <div>
                 <h3 className="text-lg font-black text-white">Rotate API Key</h3>
-                <p className="text-xs text-teal-200">Generate or specify a new authentication token</p>
+                <p className="text-xs text-white/75">Generate or specify a new authentication token</p>
               </div>
             </div>
 
@@ -801,28 +794,28 @@ res.close()`;
               </p>
             </div>
 
-            <div className="p-4 rounded-xl bg-[#002420] border border-teal-500/30 text-xs space-y-2.5">
-              <div className="flex items-center justify-between text-teal-200">
+            <div className="p-4 rounded-xl bg-[#1e373e] border border-white/20 text-xs space-y-2.5">
+              <div className="flex items-center justify-between text-white/80">
                 <span className="font-semibold">Key Specification:</span>
-                <span className="px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 font-mono font-bold text-[10px]">
+                <span className="px-2 py-0.5 rounded-full bg-[#112327] text-white font-mono font-bold text-[10px] border border-white/15">
                   Fixed Length: 16 Chars
                 </span>
               </div>
-              <div className="space-y-1 text-teal-100 font-mono text-[11px] bg-black/20 p-2.5 rounded-lg border border-teal-500/20">
+              <div className="space-y-1 text-white/90 font-mono text-[11px] bg-[#112327] p-2.5 rounded-lg border border-white/15">
                 <div className="flex justify-between">
-                  <span className="text-teal-300/70">Format:</span>
+                  <span className="text-white/60">Format:</span>
                   <span className="text-white font-bold">VP-&lt;13 ALPHANUMERIC&gt;</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-teal-300/70">Generation:</span>
+                  <span className="text-white/60">Generation:</span>
                   <span className="text-emerald-300 font-bold">Cryptographic Random (Auto)</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-teal-300/70">Target Meter:</span>
+                  <span className="text-white/60">Target Meter:</span>
                   <span className="text-white font-bold">{currentMeter.meterId}</span>
                 </div>
               </div>
-              <p className="text-[11px] text-teal-300/80 leading-normal">
+              <p className="text-[11px] text-white/70 leading-normal">
                 Clicking confirm will generate and securely assign a new 16-character authentication key. No manual input required.
               </p>
             </div>
@@ -832,7 +825,7 @@ res.close()`;
                 type="button"
                 onClick={() => setIsRotateModalOpen(false)}
                 disabled={isRotating}
-                className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-colors"
+                className="px-4 py-2 rounded-lg bg-[#1e373e] hover:bg-[#112327] border border-white/15 text-white text-xs font-semibold transition-colors"
               >
                 Cancel
               </button>
@@ -840,7 +833,7 @@ res.close()`;
                 type="button"
                 onClick={handleConfirmRotateKey}
                 disabled={isRotating}
-                className="px-5 py-2 rounded-lg bg-white hover:bg-teal-50 text-[#005149] font-black text-xs transition-all shadow-md active:scale-95 flex items-center space-x-2"
+                className="px-5 py-2 rounded-lg bg-white hover:bg-white/90 text-[#112327] font-black text-xs transition-all shadow-md active:scale-95 flex items-center space-x-2"
               >
                 {rotateSuccess ? (
                   <>
@@ -862,7 +855,7 @@ res.close()`;
       {/* MODAL 2: Delete Meter Confirmation */}
       {isDeleteModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-[#002b27] border-2 border-rose-500/60 p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+          <div className="w-full max-w-md rounded-2xl bg-[#1a2d31] border-2 border-rose-500/60 p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
             <div className="flex items-center space-x-3 text-rose-300">
               <div className="p-2.5 rounded-xl bg-rose-500/20 border border-rose-500/30">
                 <Trash2 className="w-6 h-6 text-rose-400" />
@@ -873,7 +866,7 @@ res.close()`;
               </div>
             </div>
 
-            <p className="text-xs text-teal-200 leading-relaxed">
+            <p className="text-xs text-white/80 leading-relaxed">
               Are you sure you want to permanently delete meter <strong className="text-white font-mono">{targetDeleteMeterId || currentMeter.meterId}</strong> and all associated telemetry records? This action <strong>cannot be undone</strong>.
             </p>
 
@@ -890,7 +883,7 @@ res.close()`;
                   setDeleteError(null);
                 }}
                 disabled={isDeleting}
-                className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-colors cursor-pointer"
+                className="px-4 py-2 rounded-lg bg-[#1e373e] hover:bg-[#112327] border border-white/15 text-white text-xs font-semibold transition-colors cursor-pointer"
               >
                 Cancel
               </button>
