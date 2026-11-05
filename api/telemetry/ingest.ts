@@ -619,9 +619,43 @@ export default async function handler(req: any, res: any) {
         });
       }
 
+      // Retrieve last cumulative energy for hardware ESP32 boot/resumption
+      if (action === 'energy' || parsedUrl.pathname.endsWith('/energy')) {
+        const pathMatch = parsedUrl.pathname.match(/\/meters\/([^\/]+)\/energy$/);
+        const pathMeterId = pathMatch ? decodeURIComponent(pathMatch[1]) : undefined;
+        const headerMeterId = (req.headers['x-device-id'] as string)?.trim();
+        const targetMeterId = (queryMeterId || pathMeterId || headerMeterId || '').trim();
+
+        if (!targetMeterId) {
+          return sendResponse(res, 400, { success: false, error: 'meterId is required' });
+        }
+
+        const meter = await ensureMeterLoaded(targetMeterId);
+        if (!meter) {
+          return sendResponse(res, 404, { success: false, error: `Meter '${targetMeterId}' not found` });
+        }
+
+        const incomingApiKey = ((req.headers['x-api-key'] as string) || parsedUrl.searchParams.get('apiKey') || '').trim();
+        if (incomingApiKey && incomingApiKey !== meter.apiKey) {
+          return sendResponse(res, 401, { success: false, error: 'Invalid API key' });
+        }
+
+        const energyKwh = Math.round((Number(meter.totalEnergy) || 0) * 1000) / 1000;
+        const energyWh = Math.round(energyKwh * 1000 * 10) / 10;
+
+        return sendResponse(res, 200, {
+          success: true,
+          meterId: meter.meterId,
+          energy: energyKwh,
+          energyWh,
+          relayState: meter.relayState || 'ON',
+          timestamp: meter.lastHeartbeat || meter.updatedAt || new Date().toISOString(),
+        });
+      }
+
       // Fast relay status poll for hardware ESP32
       if (queryMeterId && action === 'relay_status') {
-        const meter = globalMeters.get(queryMeterId);
+        const meter = await ensureMeterLoaded(queryMeterId);
         return sendResponse(res, 200, {
           meterId: queryMeterId,
           relayState: meter ? meter.relayState : 'ON',

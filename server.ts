@@ -197,6 +197,62 @@ app.get('/api/telemetry/meters', (req, res) => {
   });
 });
 
+// Retrieve last cumulative energy for hardware ESP32 boot/resumption
+const handleGetLastEnergy = async (req: express.Request, res: express.Response) => {
+  const targetMeterId = (
+    (req.params.meterId as string) ||
+    (req.query.meterId as string) ||
+    (req.headers['x-device-id'] as string) ||
+    ''
+  ).trim();
+
+  if (!targetMeterId) {
+    return res.status(400).json({ success: false, error: 'meterId is required' });
+  }
+
+  const meter = await ensureMeterLoaded(targetMeterId);
+  if (!meter) {
+    return res.status(404).json({ success: false, error: `Meter '${targetMeterId}' not found` });
+  }
+
+  const incomingApiKey = ((req.headers['x-api-key'] as string) || (req.query.apiKey as string) || '').trim();
+  if (incomingApiKey && incomingApiKey !== meter.apiKey) {
+    return res.status(401).json({ success: false, error: 'Invalid API key' });
+  }
+
+  const energyKwh = Math.round((Number(meter.totalEnergy) || 0) * 1000) / 1000;
+  const energyWh = Math.round(energyKwh * 1000 * 10) / 10;
+
+  return res.json({
+    success: true,
+    meterId: meter.meterId,
+    energy: energyKwh,
+    energyWh,
+    relayState: meter.relayState || 'ON',
+    timestamp: meter.lastHeartbeat || meter.updatedAt || new Date().toISOString(),
+  });
+};
+
+app.get('/api/telemetry/energy', handleGetLastEnergy);
+app.get('/api/meters/:meterId/energy', handleGetLastEnergy);
+app.get('/api/telemetry/ingest', async (req, res) => {
+  const action = (req.query.action as string)?.trim();
+  if (action === 'energy') {
+    return handleGetLastEnergy(req, res);
+  }
+  const meterId = (req.query.meterId as string)?.trim();
+  if (meterId) {
+    const meter = await ensureMeterLoaded(meterId);
+    return res.json({
+      success: true,
+      exists: !!meter,
+      meter: meter || null,
+      timestamp: new Date().toISOString(),
+    });
+  }
+  return res.json({ success: true, meters: Array.from(activeMeters.values()) });
+});
+
 // Fast relay poll
 app.get('/api/meters/:meterId/relay-status', async (req, res) => {
   const meter = await ensureMeterLoaded(req.params.meterId);

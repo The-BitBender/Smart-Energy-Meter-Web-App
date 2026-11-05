@@ -7,6 +7,10 @@
       "destination": "/api/telemetry/ingest"
     },
     {
+      "source": "/api/telemetry/energy",
+      "destination": "/api/telemetry/ingest"
+    },
+    {
       "source": "/api/telemetry/latest",
       "destination": "/api/telemetry/ingest"
     },
