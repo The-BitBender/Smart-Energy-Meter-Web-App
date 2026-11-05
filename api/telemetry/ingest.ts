@@ -12,6 +12,7 @@ export interface TelemetrySample {
   frequency: number;
   energy: number;
   relayState: 'ON' | 'OFF';
+  peakActivePower?: number;
   previousSample?: {
     voltage: number;
     current: number;
@@ -38,7 +39,7 @@ const SEVERITY_RANK: Record<'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL', number> = {
 };
 
 export function analyzeAllTelemetryAnomalies(sample: TelemetrySample): AnomalyDetectionResult[] {
-  const { voltage, current, activePower, powerFactor, frequency, relayState, previousSample } = sample;
+  const { voltage, current, activePower, powerFactor, frequency, relayState, peakActivePower, previousSample } = sample;
   const detected: AnomalyDetectionResult[] = [];
 
   if (relayState === 'OFF') {
@@ -165,6 +166,33 @@ export function analyzeAllTelemetryAnomalies(sample: TelemetrySample): AnomalyDe
       description: `Frequency shifted to ${frequency.toFixed(2)}Hz (Normal range: 49.5 - 50.5 Hz). Potential local generator oscillation or grid instability.`,
       recommendation: 'Monitor frequency trend; notify local grid operator if frequency fails to recover.',
     });
+  }
+
+  // 8. Peak Active Power Exceeded (compared against all-time peak active power)
+  // 20% - 49% above peak = LOW | 50% - 99% above peak = MEDIUM | 100% - 200% above peak = HIGH | > 200% above peak = CRITICAL
+  if (peakActivePower && peakActivePower > 0 && activePower > peakActivePower) {
+    const exceedPct = ((activePower - peakActivePower) / peakActivePower) * 100;
+    if (exceedPct >= 20) {
+      let peakSeverity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'LOW';
+      if (exceedPct > 200) {
+        peakSeverity = 'CRITICAL';
+      } else if (exceedPct >= 100) {
+        peakSeverity = 'HIGH';
+      } else if (exceedPct >= 50) {
+        peakSeverity = 'MEDIUM';
+      } else {
+        peakSeverity = 'LOW';
+      }
+
+      detected.push({
+        hasAnomaly: true,
+        type: 'PEAK_POWER_EXCEEDED',
+        severity: peakSeverity,
+        title: `Peak Active Power Exceeded (+${exceedPct.toFixed(1)}%)`,
+        description: `Reported active power of ${activePower.toFixed(1)}W exceeded the previous all-time peak of ${peakActivePower.toFixed(1)}W by ${exceedPct.toFixed(1)}% (${peakSeverity} alert tier).`,
+        recommendation: 'Verify if new high-draw loads were connected or inspect the circuit for unauthorized load tapping.',
+      });
+    }
   }
 
   detected.sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]);
@@ -334,6 +362,7 @@ async function fetchMeterFromFirestore(meterId: string): Promise<any | null> {
       voltage: Number(data.voltage) || 0.0,
       current: Number(data.current) || 0.0,
       activePower: Number(data.activePower) || 0.0,
+      peakActivePower: Math.max(Number(data.peakActivePower) || 0.0, Number(data.activePower) || 0.0),
       reactivePower: Number(data.reactivePower) || 0.0,
       powerFactor: Number(data.powerFactor) || 0.0,
       frequency: Number(data.frequency) || 0.0,
@@ -735,6 +764,12 @@ export default async function handler(req: any, res: any) {
               voltage: telSrc.voltage,
               current: telSrc.current,
               activePower: telSrc.activePower,
+              peakActivePower: Math.max(
+                Number(current.peakActivePower) || 0,
+                Number(m.peakActivePower) || 0,
+                Number(current.activePower) || 0,
+                Number(m.activePower) || 0
+              ),
               reactivePower: telSrc.reactivePower,
               powerFactor: telSrc.powerFactor,
               frequency: telSrc.frequency,
@@ -788,6 +823,7 @@ export default async function handler(req: any, res: any) {
         voltage: 0.0,
         current: 0.0,
         activePower: 0.0,
+        peakActivePower: 0.0,
         reactivePower: 0.0,
         powerFactor: 0.0,
         frequency: 0.0,
@@ -1010,6 +1046,8 @@ export default async function handler(req: any, res: any) {
       timestamp: existingMeter.updatedAt,
     };
 
+    const priorPeak = Math.max(Number(existingMeter.peakActivePower) || 0, Number(existingMeter.activePower) || 0);
+
     const sample: TelemetrySample = {
       voltage,
       current,
@@ -1019,6 +1057,7 @@ export default async function handler(req: any, res: any) {
       frequency,
       energy,
       relayState,
+      peakActivePower: priorPeak,
       previousSample: prevSample,
     };
 
@@ -1028,6 +1067,7 @@ export default async function handler(req: any, res: any) {
     existingMeter.voltage = voltage;
     existingMeter.current = current;
     existingMeter.activePower = activePower;
+    existingMeter.peakActivePower = Math.max(priorPeak, activePower);
     existingMeter.reactivePower = reactivePower;
     existingMeter.powerFactor = powerFactor;
     existingMeter.frequency = frequency;

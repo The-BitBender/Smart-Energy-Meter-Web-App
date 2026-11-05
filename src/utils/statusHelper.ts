@@ -184,12 +184,20 @@ export function reconcileMeter(existing: Meter | null | undefined, incoming: Met
   const bestHeartbeat = telemetrySource.lastHeartbeat || existing.lastHeartbeat || incoming.lastHeartbeat;
   const status = getMeterOnlineStatus(bestHeartbeat);
 
+  const peakActivePower = Math.max(
+    Number(existing.peakActivePower) || 0,
+    Number(incoming.peakActivePower) || 0,
+    Number(existing.activePower) || 0,
+    Number(incoming.activePower) || 0
+  );
+
   return {
     ...existing,
     ...metaSource,
     voltage: telemetrySource.voltage,
     current: telemetrySource.current,
     activePower: telemetrySource.activePower,
+    peakActivePower,
     reactivePower: telemetrySource.reactivePower,
     powerFactor: telemetrySource.powerFactor,
     frequency: telemetrySource.frequency,

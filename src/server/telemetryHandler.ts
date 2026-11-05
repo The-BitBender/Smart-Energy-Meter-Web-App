@@ -94,6 +94,7 @@ export async function fetchMeterFromFirestore(meterId: string): Promise<Meter | 
       voltage: Number(data.voltage) || 0.0,
       current: Number(data.current) || 0.0,
       activePower: Number(data.activePower) || 0.0,
+      peakActivePower: Math.max(Number(data.peakActivePower) || 0.0, Number(data.activePower) || 0.0),
       reactivePower: Number(data.reactivePower) || 0.0,
       powerFactor: Number(data.powerFactor) || 0.0,
       frequency: Number(data.frequency) || 0.0,
@@ -301,6 +302,12 @@ export function syncMeters(meters: Meter[], _replaceAll = false, deletedIds?: st
           voltage: telSrc.voltage,
           current: telSrc.current,
           activePower: telSrc.activePower,
+          peakActivePower: Math.max(
+            Number(existing.peakActivePower) || 0,
+            Number(m.peakActivePower) || 0,
+            Number(existing.activePower) || 0,
+            Number(m.activePower) || 0
+          ),
           reactivePower: telSrc.reactivePower,
           powerFactor: telSrc.powerFactor,
           frequency: telSrc.frequency,
@@ -722,6 +729,8 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     timestamp: meter.updatedAt,
   };
 
+  const priorPeak = Math.max(Number(meter.peakActivePower) || 0, Number(meter.activePower) || 0);
+
   const sample: TelemetrySample = {
     voltage,
     current,
@@ -731,6 +740,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     frequency,
     energy,
     relayState,
+    peakActivePower: priorPeak,
     previousSample: prevSample,
   };
 
@@ -738,10 +748,11 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
   const allAnomalies = analyzeAllTelemetryAnomalies(sample);
   const anomalyResult = analyzeTelemetryForAnomalies(sample);
 
-  // Update Existing Meter
+  // Update Existing Meter (and update all-time peak active power if current activePower is higher)
   meter.voltage = voltage;
   meter.current = current;
   meter.activePower = activePower;
+  meter.peakActivePower = Math.max(priorPeak, activePower);
   meter.reactivePower = reactivePower;
   meter.powerFactor = powerFactor;
   meter.frequency = frequency;

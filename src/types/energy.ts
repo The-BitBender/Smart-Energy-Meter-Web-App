@@ -13,7 +13,8 @@ export type AnomalyType =
   | 'TAMPER_ZERO_READING'
   | 'FREQUENCY_INSTABILITY'
   | 'UNDERVOLTAGE'
-  | 'OVERVOLTAGE';
+  | 'OVERVOLTAGE'
+  | 'PEAK_POWER_EXCEEDED';
 
 export interface MeterLocation {
   latitude: number;
@@ -37,6 +38,7 @@ export interface Meter {
   voltage: number; // Volts (V)
   current: number; // Amperes (A)
   activePower: number; // Watts (W)
+  peakActivePower?: number; // All-time peak Active Power in Watts (W)
   reactivePower: number; // Volt-Amps Reactive (VAR)
   powerFactor: number; // cos phi (0.0 to 1.0)
   frequency: number; // Hertz (Hz)
