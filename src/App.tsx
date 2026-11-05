@@ -6,6 +6,7 @@ import {
   where, 
   onSnapshot, 
   doc, 
+   getDoc,
   updateDoc, 
   setDoc,
   deleteDoc,
@@ -60,6 +61,7 @@ export default function App() {
   const syncedLogIdsRef = React.useRef<Set<string>>(new Set());
   const syncedAlertIdsRef = React.useRef<Set<string>>(new Set());
   const lastSyncedHeartbeatRef = React.useRef<Map<string, string>>(new Map());
+  const prevUserUidRef = React.useRef<string | null>(null);
 
   const markMeterDeleted = useCallback((meterId: string) => {
     deletedMeterIdsRef.current.add(meterId);
@@ -120,6 +122,15 @@ export default function App() {
   // 1. Firebase Auth listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      const incomingUid = currentUser ? currentUser.uid : null;
+      if (prevUserUidRef.current !== incomingUid) {
+        prevUserUidRef.current = incomingUid;
+        setMeters([]);
+        setActiveMeter(null);
+        setTelemetryLogs([]);
+        setAnomalies([]);
+      }
+
       setUser(currentUser);
       setAuthLoading(false);
 
@@ -136,12 +147,6 @@ export default function App() {
         } catch (err) {
           console.warn('User profile sync notice:', err);
         }
-      } else {
-        // Clear cached state on sign out
-        setMeters([]);
-        setActiveMeter(null);
-        setTelemetryLogs([]);
-        setAnomalies([]);
       }
     });
 
@@ -183,7 +188,13 @@ export default function App() {
         console.warn('API meters query notice:', apiErr);
       }
 
-      discoveredMeters = discoveredMeters.filter(m => m && m.meterId && !deletedMeterIdsRef.current.has(m.meterId));
+      discoveredMeters = discoveredMeters.filter(
+        (m) =>
+          m &&
+          m.meterId &&
+          !deletedMeterIdsRef.current.has(m.meterId) &&
+          (!currentUserId || !m.ownerUid || m.ownerUid === currentUserId)
+      );
 
       if (discoveredMeters.length > 0) {
         const discoveredMap = new Map<string, Meter>();
@@ -562,7 +573,7 @@ export default function App() {
     const ownerUid = user ? user.uid : 'demo_user';
     const now = new Date().toISOString();
 
-    // Compute sequential Meter ID (MTR-XXXX) ensuring no collision with any currently active meter
+    // Compute globally unique sequential Meter ID (MTR-XXXX) across ALL accounts (local, backend, and Firestore)
     let nextSeq = meters.length + 1;
     meters.forEach((m) => {
       const match = m.meterId?.match(/^MTR-(\d+)$/i);
@@ -573,42 +584,52 @@ export default function App() {
         }
       }
     });
-    const assignedMeterId = meterData.meterId?.trim() || formatMeterId(nextSeq);
-    const assignedApiKey = meterData.apiKey?.trim() || generate16CharApiKey();
-
-    // CRITICAL: Unmark deleted BEFORE any network or Firestore calls so onSnapshot never filters or deletes this meter!
-    unmarkMeterDeleted(assignedMeterId);
-
-    const newMeter: Meter = {
-      id: assignedMeterId,
-      meterId: assignedMeterId,
-      ownerUid,
-      name: meterData.name || `Smart Meter ${assignedMeterId}`,
-      relayState: 'ON',
-      status: 'OFFLINE',
-      apiKey: assignedApiKey,
-      lastHeartbeat: null as any,
-      latitude: meterData.latitude,
-      longitude: meterData.longitude,
-      address: meterData.address || 'Smart Grid Connection Point',
-      voltage: 0.0,
-      current: 0.0,
-      activePower: 0.0,
-      reactivePower: 0.0,
-      powerFactor: 0.0,
-      frequency: 0.0,
-      totalEnergy: 0.0,
-      hasAnomaly: false,
-      anomalyType: 'NONE',
-      anomalySeverity: 'LOW',
-      anomalyDescription: 'Newly configured meter awaiting initial telemetry stream',
-      createdAt: now,
-      updatedAt: now,
-    };
 
     try {
-      // 1. Register on backend API and telemetry ingestion engine
-      await Promise.allSettled([
+      const [nextIdRes, ingestNextRes] = await Promise.allSettled([
+        fetch('/api/meters/next-id'),
+        fetch('/api/telemetry/ingest?action=next_meter_id'),
+      ]);
+      for (const r of [nextIdRes, ingestNextRes]) {
+        if (r.status === 'fulfilled' && r.value.ok) {
+          const d = await r.value.json().catch(() => null);
+          const match = d?.nextMeterId?.match(/^MTR-(\d+)$/i);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (!isNaN(num) && num > nextSeq) {
+              nextSeq = num;
+            }
+          }
+        }
+      }
+    } catch {}
+
+    let assignedMeterId = meterData.meterId?.trim() || formatMeterId(nextSeq);
+
+    // Probe Firestore directly (allowed globally by `allow get: if isValidId(meterId)` in firestore.rules)
+    // so we NEVER assign a Meter ID that already exists in another account!
+    for (let attempt = 0; attempt < 200; attempt++) {
+      try {
+        const existingSnap = await getDoc(doc(db, 'meters', assignedMeterId));
+        if (existingSnap.exists()) {
+          const match = assignedMeterId.match(/^MTR-(\d+)$/i);
+          if (match) {
+            nextSeq = Math.max(nextSeq, parseInt(match[1], 10)) + 1;
+          } else {
+            nextSeq += 1;
+          }
+          assignedMeterId = formatMeterId(nextSeq);
+          continue;
+        }
+      } catch {}
+      break;
+    }
+
+    const assignedApiKey = meterData.apiKey?.trim() || generate16CharApiKey();
+
+    try {
+      // 1. Register on backend API and telemetry ingestion engine with createNew: true
+      const [apiRegRes, ingestRegRes] = await Promise.allSettled([
         fetch('/api/meters', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -617,6 +638,7 @@ export default function App() {
             meterId: assignedMeterId,
             apiKey: assignedApiKey,
             ownerUid,
+            createNew: true,
           }),
         }),
         fetch('/api/telemetry/ingest', {
@@ -626,29 +648,60 @@ export default function App() {
             action: 'register_meter',
             meterId: assignedMeterId,
             apiKey: assignedApiKey,
-            name: newMeter.name,
-            latitude: newMeter.latitude,
-            longitude: newMeter.longitude,
-            address: newMeter.address,
+            name: meterData.name || `Smart Meter ${assignedMeterId}`,
+            latitude: meterData.latitude,
+            longitude: meterData.longitude,
+            address: meterData.address || 'Smart Grid Connection Point',
             ownerUid,
+            createNew: true,
           }),
         }),
       ]);
 
-      // 2. If authenticated, purge any leftover telemetry/anomalies subcollection docs for this ID, then save meter to Firestore
+      // If backend resolved an even higher unused Meter ID, adopt the authoritative backend Meter ID
+      for (const r of [ingestRegRes, apiRegRes]) {
+        if (r.status === 'fulfilled' && r.value.ok) {
+          const data = await r.value.json().catch(() => null);
+          if (data?.meter?.meterId && data.meter.meterId !== assignedMeterId) {
+            assignedMeterId = data.meter.meterId;
+            break;
+          }
+        }
+      }
+
+      // CRITICAL: Unmark deleted BEFORE Firestore calls so onSnapshot never filters or deletes this meter!
+      unmarkMeterDeleted(assignedMeterId);
+
+      const newMeter: Meter = {
+        id: assignedMeterId,
+        meterId: assignedMeterId,
+        ownerUid,
+        name: meterData.name || `Smart Meter ${assignedMeterId}`,
+        relayState: 'ON',
+        status: 'OFFLINE',
+        apiKey: assignedApiKey,
+        lastHeartbeat: null as any,
+        latitude: meterData.latitude,
+        longitude: meterData.longitude,
+        address: meterData.address || 'Smart Grid Connection Point',
+        voltage: 0.0,
+        current: 0.0,
+        activePower: 0.0,
+        reactivePower: 0.0,
+        powerFactor: 0.0,
+        frequency: 0.0,
+        totalEnergy: 0.0,
+        hasAnomaly: false,
+        anomalyType: 'NONE',
+        anomalySeverity: 'LOW',
+        anomalyDescription: 'Newly configured meter awaiting initial telemetry stream',
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      // 2. If authenticated, save meter to Firestore (only after verifying the ID does not belong to another user)
       if (user) {
         try {
-          const [oldTel, oldAnom] = await Promise.all([
-            getDocs(collection(db, 'meters', newMeter.meterId, 'telemetry')).catch(() => null),
-            getDocs(collection(db, 'meters', newMeter.meterId, 'anomalies')).catch(() => null),
-          ]);
-          const cleanupPromises: Promise<any>[] = [];
-          if (oldTel) oldTel.forEach((d) => cleanupPromises.push(deleteDoc(d.ref).catch(() => {})));
-          if (oldAnom) oldAnom.forEach((d) => cleanupPromises.push(deleteDoc(d.ref).catch(() => {})));
-          if (cleanupPromises.length > 0) {
-            await Promise.allSettled(cleanupPromises);
-          }
-
           await setDoc(doc(db, 'meters', newMeter.meterId), {
             ...newMeter,
             ownerUid: user.uid,

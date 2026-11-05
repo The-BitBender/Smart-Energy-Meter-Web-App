@@ -14,6 +14,7 @@ import {
   generateApiKey,
   evaluateOnlineStatus,
   getNextMeterId,
+  resolveUniqueMeterId,
   incrementMetersCreated,
   saveMetersToDisk,
   loadMetersFromDisk,
@@ -92,8 +93,18 @@ app.post('/api/telemetry/ingest', async (req, res) => {
       return res.json({ success: true, meterId: targetId, meter: updated });
     }
 
+    if (action === 'next_meter_id') {
+      const nextMeterId = await resolveUniqueMeterId(undefined, payload.ownerUid, true);
+      return res.json({
+        success: true,
+        nextMeterId,
+        totalMetersCount: activeMeters.size,
+      });
+    }
+
     if (action === 'register_meter') {
-      const meterId = (payload.meterId?.trim()) || getNextMeterId();
+      const ownerUid = payload.ownerUid || 'demo_user';
+      const meterId = await resolveUniqueMeterId(payload.meterId, ownerUid, Boolean(payload.createNew));
       clearMeterDeletedMarker(meterId);
       telemetryStore.delete(meterId);
       anomalyStore.delete(meterId);
@@ -255,10 +266,11 @@ app.get('/api/meters', (req, res) => {
 });
 
 // Next auto-generated Meter ID based on total meters created across all accounts
-app.get('/api/meters/next-id', (req, res) => {
+app.get('/api/meters/next-id', async (req, res) => {
+  const nextMeterId = await resolveUniqueMeterId(undefined, undefined, true);
   res.json({
     success: true,
-    nextMeterId: getNextMeterId(),
+    nextMeterId,
     totalMetersCount: activeMeters.size,
   });
 });
@@ -270,10 +282,11 @@ app.post('/api/meters/reset', (req, res) => {
 });
 
 // Register or link new meter (Auto-provision credentials flow)
-app.post('/api/meters', (req, res) => {
+app.post('/api/meters', async (req, res) => {
   try {
     const body = req.body || {};
-    const meterId = (body.meterId?.trim()) || getNextMeterId();
+    const ownerUid = body.ownerUid || 'demo_user';
+    const meterId = await resolveUniqueMeterId(body.meterId, ownerUid, Boolean(body.createNew));
     clearMeterDeletedMarker(meterId);
     telemetryStore.delete(meterId);
     anomalyStore.delete(meterId);

@@ -220,11 +220,9 @@ export function resetAllMeters(): void {
 // Initial hydration from disk and common sequential meter IDs in Firestore
 loadMetersFromDisk();
 (async () => {
-  for (let i = 1; i <= 10; i++) {
+  for (let i = 1; i <= 15; i++) {
     const candidateId = `MTR-${String(i).padStart(4, '0')}`;
-    if (!activeMeters.has(candidateId)) {
-      await fetchMeterFromFirestore(candidateId);
-    }
+    await fetchMeterFromFirestore(candidateId);
   }
 })().catch(() => {});
 
@@ -260,6 +258,16 @@ export function syncMeters(meters: Meter[], _replaceAll = false, deletedIds?: st
           status: evaluateOnlineStatus(m.lastHeartbeat),
         });
       } else {
+        // Prevent a different user account from overwriting an existing meter's ownerUid or apiKey
+        if (
+          existing.ownerUid &&
+          m.ownerUid &&
+          existing.ownerUid !== 'demo_user' &&
+          m.ownerUid !== existing.ownerUid
+        ) {
+          continue;
+        }
+
         const existingHb = new Date(existing.lastHeartbeat || 0).getTime() || 0;
         const incomingHb = new Date(m.lastHeartbeat || 0).getTime() || 0;
         const existingUpd = new Date(existing.updatedAt || existing.lastHeartbeat || 0).getTime() || 0;
@@ -289,6 +297,7 @@ export function syncMeters(meters: Meter[], _replaceAll = false, deletedIds?: st
         activeMeters.set(m.meterId, {
           ...existing,
           ...metaSrc,
+          ownerUid: existing.ownerUid && existing.ownerUid !== 'demo_user' ? existing.ownerUid : (m.ownerUid || existing.ownerUid),
           voltage: telSrc.voltage,
           current: telSrc.current,
           activePower: telSrc.activePower,
@@ -302,7 +311,7 @@ export function syncMeters(meters: Meter[], _replaceAll = false, deletedIds?: st
           anomalySeverity,
           anomalyDescription,
           status: evaluateOnlineStatus(bestHeartbeat),
-          apiKey: m.apiKey || existing.apiKey,
+          apiKey: existing.apiKey || m.apiKey,
         });
       }
     }
@@ -353,6 +362,7 @@ export let totalMetersEverCreated = 0;
  * Based on total number of meters created across all accounts
  */
 export function getNextMeterId(): string {
+  loadMetersFromDisk();
   let maxSeq = 0;
   for (const mId of activeMeters.keys()) {
     const match = mId.match(/^MTR-(\d+)$/i);
@@ -365,6 +375,58 @@ export function getNextMeterId(): string {
   }
   const nextNum = Math.max(activeMeters.size + 1, totalMetersEverCreated + 1, maxSeq + 1);
   return `MTR-${String(nextNum).padStart(4, '0')}`;
+}
+
+/**
+ * Resolve a globally unique Meter ID across all accounts (memory, disk cache, and Firestore).
+ * Never allows a newly created meter or a different account to reuse an existing Meter ID.
+ */
+export async function resolveUniqueMeterId(
+  preferredId?: string,
+  ownerUid?: string,
+  createNew = false
+): Promise<string> {
+  loadMetersFromDisk();
+
+  const cleanPreferred = preferredId?.trim();
+  if (cleanPreferred && !createNew) {
+    const existing = (await fetchMeterFromFirestore(cleanPreferred)) || activeMeters.get(cleanPreferred);
+    if (!existing) {
+      return cleanPreferred;
+    }
+    if (ownerUid && existing.ownerUid === ownerUid) {
+      return cleanPreferred;
+    }
+  } else if (cleanPreferred && createNew) {
+    const existing = (await fetchMeterFromFirestore(cleanPreferred)) || activeMeters.get(cleanPreferred);
+    if (!existing) {
+      return cleanPreferred;
+    }
+  }
+
+  let seq = 1;
+  for (const mId of activeMeters.keys()) {
+    const match = mId.match(/^MTR-(\d+)$/i);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num >= seq) {
+        seq = num + 1;
+      }
+    }
+  }
+
+  // Probe Firestore and memory sequentially until an unused MTR-XXXX is found globally across all accounts
+  for (let attempts = 0; attempts < 500; attempts++) {
+    const candidateId = `MTR-${String(seq).padStart(4, '0')}`;
+    const inMemory = activeMeters.get(candidateId);
+    const inFirestore = await fetchMeterFromFirestore(candidateId);
+    if (!inMemory && !inFirestore) {
+      return candidateId;
+    }
+    seq += 1;
+  }
+
+  return `MTR-${String(seq).padStart(4, '0')}`;
 }
 
 export function incrementMetersCreated(): void {

@@ -423,6 +423,7 @@ export function generateKey(): string {
 }
 
 export function getNextMeterId(): string {
+  loadMetersFromDisk();
   let maxSeq = 0;
   for (const mId of globalMeters.keys()) {
     const match = mId.match(/^MTR-(\d+)$/i);
@@ -435,6 +436,53 @@ export function getNextMeterId(): string {
   }
   const nextNum = Math.max(globalMeters.size + 1, maxSeq + 1);
   return `MTR-${String(nextNum).padStart(4, '0')}`;
+}
+
+export async function resolveUniqueMeterId(
+  preferredId?: string,
+  ownerUid?: string,
+  createNew = false
+): Promise<string> {
+  loadMetersFromDisk();
+
+  const cleanPreferred = preferredId?.trim();
+  if (cleanPreferred && !createNew) {
+    const existing = (await fetchMeterFromFirestore(cleanPreferred)) || globalMeters.get(cleanPreferred);
+    if (!existing) {
+      return cleanPreferred;
+    }
+    if (ownerUid && existing.ownerUid === ownerUid) {
+      return cleanPreferred;
+    }
+  } else if (cleanPreferred && createNew) {
+    const existing = (await fetchMeterFromFirestore(cleanPreferred)) || globalMeters.get(cleanPreferred);
+    if (!existing) {
+      return cleanPreferred;
+    }
+  }
+
+  let seq = 1;
+  for (const mId of globalMeters.keys()) {
+    const match = mId.match(/^MTR-(\d+)$/i);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num >= seq) {
+        seq = num + 1;
+      }
+    }
+  }
+
+  for (let attempts = 0; attempts < 500; attempts++) {
+    const candidateId = `MTR-${String(seq).padStart(4, '0')}`;
+    const inMemory = globalMeters.get(candidateId);
+    const inFirestore = await fetchMeterFromFirestore(candidateId);
+    if (!inMemory && !inFirestore) {
+      return candidateId;
+    }
+    seq += 1;
+  }
+
+  return `MTR-${String(seq).padStart(4, '0')}`;
 }
 
 export function getOnlineStatus(lastHeartbeat?: string | null): 'ONLINE' | 'OFFLINE' {
@@ -531,6 +579,16 @@ export default async function handler(req: any, res: any) {
   if (req.method === 'GET') {
     try {
       const isAll = parsedUrl.searchParams.get('all') === 'true' || (!queryMeterId && !action);
+
+      // Return next globally available Meter ID across all accounts
+      if (action === 'next_meter_id' || parsedUrl.pathname.endsWith('/next-id')) {
+        const nextMeterId = await resolveUniqueMeterId(undefined, undefined, true);
+        return sendResponse(res, 200, {
+          success: true,
+          nextMeterId,
+          totalMetersCount: globalMeters.size,
+        });
+      }
 
       // Fast relay status poll for hardware ESP32
       if (queryMeterId && action === 'relay_status') {
@@ -635,6 +693,16 @@ export default async function handler(req: any, res: any) {
           if (!current) {
             globalMeters.set(m.meterId, m);
           } else {
+            // Prevent a different user account from overwriting an existing meter's ownerUid or apiKey
+            if (
+              current.ownerUid &&
+              m.ownerUid &&
+              current.ownerUid !== 'demo_user' &&
+              m.ownerUid !== current.ownerUid
+            ) {
+              continue;
+            }
+
             const currentHb = new Date(current.lastHeartbeat || 0).getTime() || 0;
             const incomingHb = new Date(m.lastHeartbeat || 0).getTime() || 0;
             const currentUpd = new Date(current.updatedAt || current.lastHeartbeat || 0).getTime() || 0;
@@ -663,6 +731,7 @@ export default async function handler(req: any, res: any) {
             globalMeters.set(m.meterId, {
               ...current,
               ...metaSrc,
+              ownerUid: current.ownerUid && current.ownerUid !== 'demo_user' ? current.ownerUid : (m.ownerUid || current.ownerUid),
               voltage: telSrc.voltage,
               current: telSrc.current,
               activePower: telSrc.activePower,
@@ -675,7 +744,7 @@ export default async function handler(req: any, res: any) {
               anomalyType,
               anomalySeverity,
               anomalyDescription,
-              apiKey: m.apiKey || current.apiKey,
+              apiKey: current.apiKey || m.apiKey,
             });
           }
         }
@@ -684,9 +753,19 @@ export default async function handler(req: any, res: any) {
       return sendResponse(res, 200, { success: true, count: globalMeters.size });
     }
 
+    if (payload.action === 'next_meter_id') {
+      const nextMeterId = await resolveUniqueMeterId(undefined, payload.ownerUid, true);
+      return sendResponse(res, 200, {
+        success: true,
+        nextMeterId,
+        totalMetersCount: globalMeters.size,
+      });
+    }
+
     // 2. Check if this is an explicit meter registration from UI or /api/meters
     if (payload.action === 'register_meter' || pathname.endsWith('/meters')) {
-      const meterId = payload.meterId?.trim() || getNextMeterId();
+      const ownerUid = payload.ownerUid || 'demo_user';
+      const meterId = await resolveUniqueMeterId(payload.meterId, ownerUid, Boolean(payload.createNew));
       deletedMeterIds.delete(meterId);
       globalLogs.delete(meterId);
       globalAnomalies.delete(meterId);

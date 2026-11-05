@@ -132,6 +132,17 @@ export function reconcileMeter(existing: Meter | null | undefined, incoming: Met
     return { ...incoming, status };
   }
 
+  // Never allow a payload belonging to a different user account to overwrite an existing meter
+  if (
+    existing.ownerUid &&
+    incoming.ownerUid &&
+    existing.ownerUid !== 'demo_user' &&
+    incoming.ownerUid !== 'demo_user' &&
+    existing.ownerUid !== incoming.ownerUid
+  ) {
+    return existing;
+  }
+
   const existingHb = new Date(existing.lastHeartbeat || 0).getTime() || 0;
   const incomingHb = new Date(incoming.lastHeartbeat || 0).getTime() || 0;
 
