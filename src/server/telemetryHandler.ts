@@ -837,22 +837,25 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     }
   }
 
-  const anomalyAlert = anomalyAlerts[0];
-
   // Persist updated meter state, telemetry log, and all anomaly alerts to Firestore
   persistMeterToFirestore(meter, log, anomalyAlerts).catch(() => {});
 
-  return {
+  const compactResponse: Record<string, any> = {
     success: true,
     meterId,
     relayState: meter.relayState,
     anomalyDetected: anomalyResult.hasAnomaly,
-    anomaly: anomalyResult,
-    anomaliesDetected: allAnomalies,
-    anomalyAlert,
-    anomalyAlerts,
-    meter,
-    log,
-    timestamp: now,
   };
+
+  if (anomalyResult.hasAnomaly && allAnomalies.length > 0) {
+    compactResponse.anomalies = allAnomalies.map((a) => ({
+      type: a.type,
+      severity: a.severity,
+      title: a.title,
+    }));
+  }
+
+  compactResponse.timestamp = now;
+
+  return compactResponse;
 }

@@ -1101,25 +1101,27 @@ export default async function handler(req: any, res: any) {
       globalAnomalies.set(meterId, alerts);
     }
 
-    const anomalyAlert = anomalyAlerts[0] || null;
-
     saveMetersToDisk();
     await persistMeterToFirestore(existingMeter, log, anomalyAlerts);
 
-    return sendResponse(res, 200, {
+    const compactResponse: Record<string, any> = {
       success: true,
       meterId,
       relayState: existingMeter.relayState,
       anomalyDetected: anomalyResult.hasAnomaly,
-      anomaly: anomalyResult,
-      anomaliesDetected: allAnomalies,
-      anomalyAlert,
-      anomalyAlerts,
-      meter: existingMeter,
-      log,
-      telemetryLog: log,
-      timestamp: now,
-    });
+    };
+
+    if (anomalyResult.hasAnomaly && allAnomalies.length > 0) {
+      compactResponse.anomalies = allAnomalies.map((a) => ({
+        type: a.type,
+        severity: a.severity,
+        title: a.title,
+      }));
+    }
+
+    compactResponse.timestamp = now;
+
+    return sendResponse(res, 200, compactResponse);
   } catch (err: any) {
     console.error('[Telemetry Ingest Error]', err);
     return sendResponse(res, 500, {

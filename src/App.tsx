@@ -1052,19 +1052,31 @@ export default function App() {
         try {
           data = JSON.parse(text);
         } catch {}
-        if (data?.meter) {
-          setActiveMeter(prev => prev ? reconcileMeter(prev, data.meter) : data.meter);
-          setMeters(prev => prev.map(m => m.meterId === activeMeter.meterId ? reconcileMeter(m, data.meter) : m));
+
+        // Because /api/telemetry/ingest returns a compact MCU response, fetch the full web-app state from /api/telemetry/latest
+        let fullState: any = null;
+        try {
+          const latestRes = await fetch(`/api/telemetry/latest?meterId=${encodeURIComponent(activeMeter.meterId)}`);
+          if (latestRes.ok) {
+            fullState = await latestRes.json();
+          }
+        } catch {}
+
+        const updatedMeter = fullState?.meter || data?.meter;
+        if (updatedMeter) {
+          setActiveMeter(prev => prev ? reconcileMeter(prev, updatedMeter) : updatedMeter);
+          setMeters(prev => prev.map(m => m.meterId === activeMeter.meterId ? reconcileMeter(m, updatedMeter) : m));
           if (user) {
             try {
               setDoc(doc(db, 'meters', activeMeter.meterId), {
-                ...data.meter,
+                ...updatedMeter,
                 ownerUid: user.uid,
               }, { merge: true });
             } catch {}
           }
         }
-        const incomingLog = data?.telemetryLog || data?.log;
+
+        const incomingLog = fullState?.latestLog || data?.telemetryLog || data?.log;
         if (incomingLog) {
           if (incomingLog.id) syncedLogIdsRef.current.add(incomingLog.id);
           setTelemetryLogs(prev => reconcileTelemetryLogs(prev, [incomingLog]));
@@ -1079,23 +1091,10 @@ export default function App() {
         }
 
         // Handle ALL simultaneous anomalies detected in a single telemetry reading
-        const alertList: AnomalyAlert[] = Array.isArray(data?.anomalyAlerts) && data.anomalyAlerts.length > 0
+        const alertList: AnomalyAlert[] = Array.isArray(fullState?.alerts) && fullState.alerts.length > 0
+          ? fullState.alerts
+          : Array.isArray(data?.anomalyAlerts) && data.anomalyAlerts.length > 0
           ? data.anomalyAlerts
-          : data?.anomalyAlert
-          ? [data.anomalyAlert]
-          : (data?.anomaly && data.anomaly.hasAnomaly)
-          ? [{
-              id: `ALT-${Date.now()}`,
-              meterId: activeMeter.meterId,
-              ownerUid: user ? user.uid : 'demo_user',
-              type: data.anomaly.type,
-              severity: data.anomaly.severity,
-              title: data.anomaly.title,
-              description: data.anomaly.description,
-              status: 'ACTIVE',
-              telemetrySnapshot: incomingLog || sampleData,
-              createdAt: new Date().toISOString(),
-            }]
           : [];
 
         if (alertList.length > 0) {

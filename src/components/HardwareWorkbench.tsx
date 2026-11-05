@@ -127,8 +127,11 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
     try {
       const res = await onSendTelemetry(payload);
       const isAnomaly = res?.anomalyDetected;
+      const anomalySummary = Array.isArray(res?.anomalies) && res.anomalies.length > 0
+        ? res.anomalies.map((a: any) => a.title || a.type).join(' | ')
+        : (res?.anomaly?.title || 'Anomaly Detected');
       setSerialLogs(prev => [
-        `[${timestamp}] RX <- HTTP 200 OK | RelayCmd: ${res?.relayState || meter.relayState} | ${isAnomaly ? 'ANOMALY FLAGGED: ' + res?.anomaly?.title : 'Status: Normal'}`,
+        `[${timestamp}] RX <- HTTP 200 OK | RelayCmd: ${res?.relayState || meter.relayState} | ${isAnomaly ? 'ANOMALY FLAGGED: ' + anomalySummary : 'Status: Normal'}`,
         ...prev.slice(0, 15),
       ]);
     } catch (err: any) {
