@@ -10,23 +10,87 @@ interface HistoricalChartsProps {
 type TimeRange = '1h' | '6h' | '24h' | 'all';
 type MetricView = 'power_energy' | 'voltage_current';
 
+function evaluateLogAnomalies(log: TelemetryLog): { hasAnomaly: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  const v = Number(log.voltage) || 0;
+  const i = Number(log.current) || 0;
+  const p = Number(log.activePower) || 0;
+  const f = Number(log.frequency) || 0;
+
+  if (log.relayState === 'OFF' && (i > 0.8 || Math.abs(p) > 100)) {
+    reasons.push('Relay Bypass');
+  }
+  if (v >= 250) {
+    reasons.push(`Over-voltage (${v.toFixed(1)}V)`);
+  } else if (v >= 242) {
+    reasons.push(`High Voltage (${v.toFixed(1)}V)`);
+  } else if (v > 0 && v < 180) {
+    reasons.push(`Critical Sag (${v.toFixed(1)}V)`);
+  } else if (v >= 180 && v < 207) {
+    reasons.push(`Under-voltage (${v.toFixed(1)}V)`);
+  }
+
+  if (i > 42 || p > 9500) {
+    reasons.push(`Overcurrent (${i.toFixed(1)}A)`);
+  }
+  if (i < -0.3 || p < -60) {
+    reasons.push(`Reverse Flow (${p.toFixed(0)}W)`);
+  }
+  if (f > 0 && (f < 47.5 || f > 52.5)) {
+    reasons.push(`Freq Deviation (${f.toFixed(2)}Hz)`);
+  }
+  if (v * i > 800 && p < 40 && i > 3.5) {
+    reasons.push('Phase/Neutral Tamper');
+  }
+  if (log.hasAnomaly && reasons.length === 0) {
+    reasons.push('Anomaly Flagged');
+  }
+
+  return {
+    hasAnomaly: Boolean(log.hasAnomaly || reasons.length > 0),
+    reasons,
+  };
+}
+
 export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterId }) => {
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
   const [metricView, setMetricView] = useState<MetricView>('power_energy');
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
-  // Filter logs by selected range
+  // Filter and deterministically sort logs in ascending chronological order
   const filteredLogs = useMemo(() => {
     if (!logs || logs.length === 0) return [];
-    const now = Date.now();
+
+    // Deduplicate by ID and sort chronologically (oldest -> newest from left to right)
+    const uniqueMap = new Map<string, TelemetryLog>();
+    for (const l of logs) {
+      if (l && l.id) {
+        uniqueMap.set(l.id, l);
+      }
+    }
+    const sorted = Array.from(uniqueMap.values()).sort((a, b) => {
+      const tA = new Date(a.timestamp).getTime() || 0;
+      const tB = new Date(b.timestamp).getTime() || 0;
+      return tA !== tB ? tA - tB : a.id.localeCompare(b.id);
+    });
+
+    if (sorted.length === 0 || timeRange === 'all') {
+      return sorted;
+    }
+
+    const latestTimestamp = new Date(sorted[sorted.length - 1].timestamp).getTime() || Date.now();
+    const referenceNow = Math.max(Date.now(), latestTimestamp);
+
     let cutoffMs = 24 * 60 * 60 * 1000;
     if (timeRange === '1h') cutoffMs = 60 * 60 * 1000;
     if (timeRange === '6h') cutoffMs = 6 * 60 * 60 * 1000;
-    if (timeRange === 'all') cutoffMs = Infinity;
 
-    return logs
-      .filter(l => now - new Date(l.timestamp).getTime() <= cutoffMs)
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    const inWindow = sorted.filter((l) => {
+      const t = new Date(l.timestamp).getTime();
+      return !isNaN(t) && referenceNow - t <= cutoffMs;
+    });
+
+    return inWindow.length > 0 ? inWindow : sorted;
   }, [logs, timeRange]);
 
   // Compute summary metrics for the window
@@ -35,27 +99,32 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
       return { peakPower: 0, minVoltage: 0, maxVoltage: 0, energyDelta: 0, avgCurrent: 0, anomaliesCount: 0 };
     }
     let peakPower = 0;
-    let minVoltage = 999;
+    let minVoltage = Infinity;
     let maxVoltage = 0;
     let sumCurrent = 0;
     let anomaliesCount = 0;
 
     for (const log of filteredLogs) {
-      if (log.activePower > peakPower) peakPower = log.activePower;
-      if (log.voltage < minVoltage) minVoltage = log.voltage;
-      if (log.voltage > maxVoltage) maxVoltage = log.voltage;
-      sumCurrent += log.current;
-      if (log.hasAnomaly) anomaliesCount++;
+      const p = Number(log.activePower) || 0;
+      const v = Number(log.voltage) || 0;
+      const c = Number(log.current) || 0;
+      if (p > peakPower) peakPower = p;
+      if (v < minVoltage) minVoltage = v;
+      if (v > maxVoltage) maxVoltage = v;
+      sumCurrent += c;
+      if (evaluateLogAnomalies(log).hasAnomaly) {
+        anomaliesCount++;
+      }
     }
 
-    const firstEnergy = filteredLogs[0]?.energy || 0;
-    const lastEnergy = filteredLogs[filteredLogs.length - 1]?.energy || 0;
+    const firstEnergy = Number(filteredLogs[0]?.energy) || 0;
+    const lastEnergy = Number(filteredLogs[filteredLogs.length - 1]?.energy) || 0;
     const energyDelta = Math.max(0, lastEnergy - firstEnergy);
     const avgCurrent = sumCurrent / filteredLogs.length;
 
     return {
       peakPower,
-      minVoltage: minVoltage === 999 ? 0 : minVoltage,
+      minVoltage: minVoltage === Infinity ? 0 : minVoltage,
       maxVoltage,
       energyDelta,
       avgCurrent,
@@ -66,7 +135,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
   // Dimensions for responsive SVG chart
   const width = 800;
   const height = 300;
-  const padding = { top: 25, right: 35, bottom: 40, left: 55 };
+  const padding = { top: 28, right: 52, bottom: 42, left: 58 };
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
 
@@ -75,40 +144,70 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
     if (filteredLogs.length === 0) return null;
 
     const count = filteredLogs.length;
-    let minP = 0;
-    let maxP = Math.max(1000, ...filteredLogs.map(l => l.activePower * 1.15));
-    let minE = Math.min(...filteredLogs.map(l => l.energy));
-    let maxE = Math.max(minE + 1, ...filteredLogs.map(l => l.energy));
+    const powers = filteredLogs.map((l) => Number(l.activePower) || 0);
+    const energies = filteredLogs.map((l) => Number(l.energy) || 0);
+    const voltages = filteredLogs.map((l) => Number(l.voltage) || 0);
+    const currents = filteredLogs.map((l) => Number(l.current) || 0);
 
-    let minV = Math.min(180, ...filteredLogs.map(l => l.voltage * 0.95));
-    let maxV = Math.max(260, ...filteredLogs.map(l => l.voltage * 1.05));
-    let minI = 0;
-    let maxI = Math.max(10, ...filteredLogs.map(l => l.current * 1.2));
+    const minP = Math.min(0, ...powers);
+    const maxP = Math.max(500, Math.max(...powers) * 1.15);
+
+    const minE = Math.min(...energies);
+    const maxE = Math.max(minE + 0.05, Math.max(...energies) + (Math.max(...energies) - minE) * 0.15);
+
+    const minV = Math.max(0, Math.min(160, Math.min(...voltages) - 15));
+    const maxV = Math.max(270, Math.max(...voltages) + 15);
+
+    const minI = Math.min(0, ...currents);
+    const maxI = Math.max(10, Math.max(...currents) * 1.2);
+
+    const clampY = (val: number, minVal: number, maxVal: number) => {
+      const ratio = (val - minVal) / (maxVal - minVal || 1);
+      const clampedRatio = Math.min(1, Math.max(0, ratio));
+      return padding.top + chartH - clampedRatio * chartH;
+    };
 
     const points = filteredLogs.map((log, i) => {
       const x = padding.left + (count === 1 ? chartW / 2 : (i / (count - 1)) * chartW);
-      const yPower = padding.top + chartH - ((log.activePower - minP) / (maxP - minP || 1)) * chartH;
-      const yEnergy = padding.top + chartH - ((log.energy - minE) / (maxE - minE || 1)) * chartH;
-      const yVoltage = padding.top + chartH - ((log.voltage - minV) / (maxV - minV || 1)) * chartH;
-      const yCurrent = padding.top + chartH - ((log.current - minI) / (maxI - minI || 1)) * chartH;
+      const yPower = clampY(Number(log.activePower) || 0, minP, maxP);
+      const yEnergy = clampY(Number(log.energy) || 0, minE, maxE);
+      const yVoltage = clampY(Number(log.voltage) || 0, minV, maxV);
+      const yCurrent = clampY(Number(log.current) || 0, minI, maxI);
+      const anomEval = evaluateLogAnomalies(log);
 
       return {
         ...log,
+        hasAnomaly: anomEval.hasAnomaly,
+        anomalyReasons: anomEval.reasons,
         x,
         yPower,
         yEnergy,
         yVoltage,
         yCurrent,
-        timeFormatted: new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timeFormatted: new Date(log.timestamp).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        }),
       };
     });
 
-    const powerPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.yPower.toFixed(1)}`).join(' ');
-    const powerArea = `${powerPath} L ${points[points.length - 1].x.toFixed(1)} ${(padding.top + chartH).toFixed(1)} L ${points[0].x.toFixed(1)} ${(padding.top + chartH).toFixed(1)} Z`;
+    const buildLinePath = (key: 'yPower' | 'yEnergy' | 'yVoltage' | 'yCurrent') => {
+      if (points.length === 1) {
+        const y = points[0][key].toFixed(1);
+        return `M ${padding.left.toFixed(1)} ${y} L ${(padding.left + chartW).toFixed(1)} ${y}`;
+      }
+      return points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p[key].toFixed(1)}`).join(' ');
+    };
 
-    const energyPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.yEnergy.toFixed(1)}`).join(' ');
-    const voltagePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.yVoltage.toFixed(1)}`).join(' ');
-    const currentPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.yCurrent.toFixed(1)}`).join(' ');
+    const powerPath = buildLinePath('yPower');
+    const firstX = points.length === 1 ? padding.left : points[0].x;
+    const lastX = points.length === 1 ? padding.left + chartW : points[points.length - 1].x;
+    const powerArea = `${powerPath} L ${lastX.toFixed(1)} ${(padding.top + chartH).toFixed(1)} L ${firstX.toFixed(1)} ${(padding.top + chartH).toFixed(1)} Z`;
+
+    const energyPath = buildLinePath('yEnergy');
+    const voltagePath = buildLinePath('yVoltage');
+    const currentPath = buildLinePath('yCurrent');
 
     return {
       points,
@@ -128,7 +227,9 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
     };
   }, [filteredLogs, chartW, chartH]);
 
-  const activePoint = hoverIndex !== null && chartData ? chartData.points[hoverIndex] : null;
+  const activePoint = hoverIndex !== null && chartData && chartData.points[hoverIndex]
+    ? chartData.points[hoverIndex]
+    : null;
 
   return (
     <div className="rounded-2xl bg-[#1e373e] border border-white/20 p-5 shadow-lg mb-6 text-white transition-all hover:border-white/40">
@@ -151,7 +252,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
           <div className="flex rounded-lg bg-[#112327] p-1 border border-white/20 text-xs font-semibold">
             <button
               onClick={() => setMetricView('power_energy')}
-              className={`px-3 py-1.5 rounded-md transition-colors ${
+              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
                 metricView === 'power_energy' ? 'bg-white text-[#112327] font-extrabold shadow-sm' : 'text-white/75 hover:text-white'
               }`}
             >
@@ -159,7 +260,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
             </button>
             <button
               onClick={() => setMetricView('voltage_current')}
-              className={`px-3 py-1.5 rounded-md transition-colors ${
+              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
                 metricView === 'voltage_current' ? 'bg-white text-[#112327] font-extrabold shadow-sm' : 'text-white/75 hover:text-white'
               }`}
             >
@@ -173,7 +274,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
               <button
                 key={r}
                 onClick={() => setTimeRange(r)}
-                className={`px-2.5 py-1.5 rounded-md transition-colors ${
+                className={`px-2.5 py-1.5 rounded-md transition-colors cursor-pointer ${
                   timeRange === r ? 'bg-white text-[#112327] font-black shadow-sm' : 'text-white/75 hover:text-white'
                 }`}
               >
@@ -230,17 +331,12 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
               <defs>
                 {/* Area Gradient for Active Power */}
                 <linearGradient id="powerGradDominant" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#ffffff" stopOpacity="0.35" />
+                  <stop offset="0%" stopColor="#ffffff" stopOpacity="0.30" />
                   <stop offset="100%" stopColor="#ffffff" stopOpacity="0.0" />
-                </linearGradient>
-                {/* Area Gradient for Energy */}
-                <linearGradient id="energyGradDominant" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.0" />
                 </linearGradient>
               </defs>
 
-              {/* Horizontal Grid lines */}
+              {/* Horizontal Grid lines & Dual Y-Axis Labels */}
               {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
                 const y = padding.top + chartH * ratio;
                 return (
@@ -254,29 +350,55 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
                       strokeDasharray="4 4"
                     />
                     {metricView === 'power_energy' ? (
-                      <text
-                        x={padding.left - 8}
-                        y={y + 4}
-                        fill="#ffffff"
-                        fillOpacity="0.75"
-                        fontSize="10"
-                        fontFamily="monospace"
-                        textAnchor="end"
-                      >
-                        {Math.round(chartData.maxP * (1 - ratio))}W
-                      </text>
+                      <>
+                        <text
+                          x={padding.left - 8}
+                          y={y + 4}
+                          fill="#ffffff"
+                          fillOpacity="0.75"
+                          fontSize="10"
+                          fontFamily="monospace"
+                          textAnchor="end"
+                        >
+                          {Math.round(chartData.maxP - (chartData.maxP - chartData.minP) * ratio)}W
+                        </text>
+                        <text
+                          x={width - padding.right + 6}
+                          y={y + 4}
+                          fill="#38bdf8"
+                          fillOpacity="0.8"
+                          fontSize="9"
+                          fontFamily="monospace"
+                          textAnchor="start"
+                        >
+                          {(chartData.maxE - (chartData.maxE - chartData.minE) * ratio).toFixed(2)}
+                        </text>
+                      </>
                     ) : (
-                      <text
-                        x={padding.left - 8}
-                        y={y + 4}
-                        fill="#ffffff"
-                        fillOpacity="0.75"
-                        fontSize="10"
-                        fontFamily="monospace"
-                        textAnchor="end"
-                      >
-                        {Math.round(chartData.maxV - (chartData.maxV - chartData.minV) * ratio)}V
-                      </text>
+                      <>
+                        <text
+                          x={padding.left - 8}
+                          y={y + 4}
+                          fill="#ffffff"
+                          fillOpacity="0.75"
+                          fontSize="10"
+                          fontFamily="monospace"
+                          textAnchor="end"
+                        >
+                          {Math.round(chartData.maxV - (chartData.maxV - chartData.minV) * ratio)}V
+                        </text>
+                        <text
+                          x={width - padding.right + 6}
+                          y={y + 4}
+                          fill="#38bdf8"
+                          fillOpacity="0.8"
+                          fontSize="9"
+                          fontFamily="monospace"
+                          textAnchor="start"
+                        >
+                          {(chartData.maxI - (chartData.maxI - chartData.minI) * ratio).toFixed(1)}A
+                        </text>
+                      </>
                     )}
                   </g>
                 );
@@ -285,9 +407,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
               {/* Metric View 1: Active Power & Energy */}
               {metricView === 'power_energy' && (
                 <>
-                  {/* Power Area */}
                   <path d={chartData.powerArea} fill="url(#powerGradDominant)" />
-                  {/* Power Stroke line in Crisp White */}
                   <path
                     d={chartData.powerPath}
                     fill="none"
@@ -296,7 +416,6 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
-                  {/* Energy Accumulation Stroke */}
                   <path
                     d={chartData.energyPath}
                     fill="none"
@@ -311,7 +430,6 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
               {/* Metric View 2: Voltage & Current */}
               {metricView === 'voltage_current' && (
                 <>
-                  {/* Voltage Stroke */}
                   <path
                     d={chartData.voltagePath}
                     fill="none"
@@ -320,7 +438,6 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
-                  {/* Current Stroke */}
                   <path
                     d={chartData.currentPath}
                     fill="none"
@@ -332,25 +449,62 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
                 </>
               )}
 
-              {/* Anomaly markers plotted on the timeline */}
+              {/* Standard & Anomaly Data Point Nodes */}
               {chartData.points.map((p, i) => {
-                if (!p.hasAnomaly) return null;
+                const primaryY = metricView === 'power_energy' ? p.yPower : p.yVoltage;
+                const secondaryY = metricView === 'power_energy' ? p.yEnergy : p.yCurrent;
+
+                if (p.hasAnomaly) {
+                  return (
+                    <g key={`pt-anom-${p.id}-${i}`}>
+                      {/* Vertical anomaly indicator line */}
+                      <line
+                        x1={p.x}
+                        y1={padding.top}
+                        x2={p.x}
+                        y2={padding.top + chartH}
+                        stroke="rgba(244, 63, 94, 0.35)"
+                        strokeWidth="1.5"
+                        strokeDasharray="2 3"
+                      />
+                      {/* Secondary curve anomaly marker */}
+                      <circle
+                        cx={p.x}
+                        cy={secondaryY}
+                        r="4"
+                        fill="#f43f5e"
+                        stroke="#ffffff"
+                        strokeWidth="1.2"
+                      />
+                      {/* Primary curve pulsing anomaly marker */}
+                      <circle
+                        cx={p.x}
+                        cy={primaryY}
+                        r="7"
+                        fill="#f43f5e"
+                        fillOpacity="0.35"
+                      />
+                      <circle
+                        cx={p.x}
+                        cy={primaryY}
+                        r="5"
+                        fill="#f43f5e"
+                        stroke="#ffffff"
+                        strokeWidth="1.8"
+                      />
+                    </g>
+                  );
+                }
+
                 return (
-                  <g key={`anom-${i}`}>
+                  <g key={`pt-norm-${p.id}-${i}`}>
                     <circle
                       cx={p.x}
-                      cy={metricView === 'power_energy' ? p.yPower : p.yVoltage}
-                      r="6"
-                      fill="#f43f5e"
-                      className="animate-ping opacity-75"
-                    />
-                    <circle
-                      cx={p.x}
-                      cy={metricView === 'power_energy' ? p.yPower : p.yVoltage}
-                      r="4"
-                      fill="#f43f5e"
-                      stroke="#ffffff"
-                      strokeWidth="1.5"
+                      cy={primaryY}
+                      r="3"
+                      fill="#ffffff"
+                      stroke="#112327"
+                      strokeWidth="1.2"
                     />
                   </g>
                 );
@@ -358,10 +512,10 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
 
               {/* Invisible interactive hover bars across points */}
               {chartData.points.map((p, i) => {
-                const segW = chartW / chartData.points.length;
+                const segW = Math.max(16, chartW / Math.max(1, chartData.points.length));
                 return (
                   <rect
-                    key={`hover-bar-${i}`}
+                    key={`hover-bar-${p.id}-${i}`}
                     x={p.x - segW / 2}
                     y={padding.top}
                     width={segW}
@@ -388,8 +542,8 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
                   <circle
                     cx={activePoint.x}
                     cy={metricView === 'power_energy' ? activePoint.yPower : activePoint.yVoltage}
-                    r="5"
-                    fill="#ffffff"
+                    r="6"
+                    fill={activePoint.hasAnomaly ? '#f43f5e' : '#ffffff'}
                     stroke="#112327"
                     strokeWidth="2"
                   />
@@ -397,26 +551,59 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
               )}
 
               {/* X-axis time labels */}
-              {chartData.points.filter((_, i) => i === 0 || i === Math.floor(chartData.points.length / 2) || i === chartData.points.length - 1).map((p, idx) => (
-                <text
-                  key={`time-${idx}`}
-                  x={p.x}
-                  y={height - 12}
-                  fill="#ffffff"
-                  fillOpacity="0.75"
-                  fontSize="10"
-                  fontFamily="monospace"
-                  textAnchor={idx === 0 ? 'start' : idx === 2 ? 'end' : 'middle'}
-                >
-                  {p.timeFormatted}
-                </text>
-              ))}
+              {(() => {
+                const pts = chartData.points;
+                if (pts.length === 1) {
+                  return (
+                    <text
+                      x={pts[0].x}
+                      y={height - 12}
+                      fill="#ffffff"
+                      fillOpacity="0.85"
+                      fontSize="10"
+                      fontFamily="monospace"
+                      textAnchor="middle"
+                    >
+                      {pts[0].timeFormatted}
+                    </text>
+                  );
+                }
+                const indices = Array.from(
+                  new Set([0, Math.floor((pts.length - 1) / 2), pts.length - 1])
+                );
+                return indices.map((idxPos, labelIdx) => {
+                  const p = pts[idxPos];
+                  if (!p) return null;
+                  return (
+                    <text
+                      key={`time-${idxPos}`}
+                      x={p.x}
+                      y={height - 12}
+                      fill="#ffffff"
+                      fillOpacity="0.75"
+                      fontSize="10"
+                      fontFamily="monospace"
+                      textAnchor={
+                        idxPos === 0
+                          ? 'start'
+                          : idxPos === pts.length - 1
+                          ? 'end'
+                          : labelIdx === 1
+                          ? 'middle'
+                          : 'middle'
+                      }
+                    >
+                      {p.timeFormatted}
+                    </text>
+                  );
+                });
+              })()}
             </svg>
 
             {/* Floating Tooltip Card in White */}
             {activePoint && (
-              <div 
-                className="absolute z-20 top-2 left-1/2 -translate-x-1/2 p-3 rounded-xl bg-white text-[#112327] border border-white shadow-2xl backdrop-blur-md flex items-center space-x-4 text-xs font-mono pointer-events-none"
+              <div
+                className="absolute z-20 top-2 left-1/2 -translate-x-1/2 px-3.5 py-2.5 rounded-xl bg-white text-[#112327] border border-white shadow-2xl flex flex-wrap items-center gap-3 text-xs font-mono pointer-events-none max-w-[95%]"
               >
                 <div>
                   <span className="text-slate-500">Time:</span>
@@ -425,23 +612,29 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
                 <div className="h-6 w-px bg-slate-200" />
                 <div>
                   <span className="text-slate-500 font-bold">Power:</span>
-                  <div className="font-black text-[#112327]">{activePoint.activePower.toFixed(0)} W</div>
+                  <div className="font-black text-[#112327]">{Number(activePoint.activePower).toFixed(0)} W</div>
                 </div>
                 <div>
                   <span className="text-sky-600 font-bold">Energy:</span>
-                  <div className="font-black text-sky-800">{activePoint.energy.toFixed(3)} kWh</div>
+                  <div className="font-black text-sky-800">{Number(activePoint.energy).toFixed(3)} kWh</div>
                 </div>
                 <div>
                   <span className="text-amber-600 font-bold">Voltage:</span>
-                  <div className="font-black text-amber-800">{activePoint.voltage.toFixed(1)} V</div>
+                  <div className="font-black text-amber-800">{Number(activePoint.voltage).toFixed(1)} V</div>
                 </div>
                 <div>
                   <span className="text-emerald-600 font-bold">Current:</span>
-                  <div className="font-black text-emerald-800">{activePoint.current.toFixed(2)} A</div>
+                  <div className="font-black text-emerald-800">{Number(activePoint.current).toFixed(2)} A</div>
+                </div>
+                <div>
+                  <span className="text-purple-600 font-bold">Freq:</span>
+                  <div className="font-black text-purple-800">{Number(activePoint.frequency || 50).toFixed(2)} Hz</div>
                 </div>
                 {activePoint.hasAnomaly && (
-                  <div className="px-2 py-0.5 rounded bg-rose-600 text-white font-sans text-[10px] font-black">
-                    THEFT / ANOMALY
+                  <div className="px-2.5 py-1 rounded-lg bg-rose-600 text-white font-sans text-[10px] font-black tracking-wide">
+                    {activePoint.anomalyReasons && activePoint.anomalyReasons.length > 0
+                      ? `ANOMALY: ${activePoint.anomalyReasons.join(' + ')}`
+                      : 'THEFT / ANOMALY'}
                   </div>
                 )}
               </div>
@@ -477,13 +670,13 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({ logs, meterI
             </>
           )}
           <div className="flex items-center space-x-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-400"></span>
-            <span className="text-rose-200 font-medium">Anomaly Point</span>
+            <span className="w-3 h-3 rounded-full bg-rose-500 border border-white"></span>
+            <span className="text-rose-200 font-bold">Anomaly Point ({summary.anomaliesCount})</span>
           </div>
         </div>
 
         <div className="text-[11px] font-mono text-white/60">
-          Showing {filteredLogs.length} time-series data points
+          Showing {filteredLogs.length} time-series data {filteredLogs.length === 1 ? 'point' : 'points'}
         </div>
       </div>
 

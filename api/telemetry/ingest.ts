@@ -30,157 +30,183 @@ export interface AnomalyDetectionResult {
   recommendation: string;
 }
 
-export function analyzeTelemetryForAnomalies(sample: TelemetrySample): AnomalyDetectionResult {
-  const { voltage, current, activePower, powerFactor, frequency, relayState, previousSample } = sample;
+const SEVERITY_RANK: Record<'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL', number> = {
+  LOW: 1,
+  MEDIUM: 2,
+  HIGH: 3,
+  CRITICAL: 4,
+};
 
-  // If relay is intentionally turned OFF, any current indicates bypass or welded contacts
+export function analyzeAllTelemetryAnomalies(sample: TelemetrySample): AnomalyDetectionResult[] {
+  const { voltage, current, activePower, powerFactor, frequency, relayState, previousSample } = sample;
+  const detected: AnomalyDetectionResult[] = [];
+
   if (relayState === 'OFF') {
     if (current > 0.8 || Math.abs(activePower) > 100) {
-      return {
+      detected.push({
         hasAnomaly: true,
         type: 'UNMETERED_BYPASS',
         severity: 'CRITICAL',
         title: 'Unauthorized Current While Relay Tripped',
         description: `Current of ${current.toFixed(2)}A and power of ${activePower.toFixed(0)}W detected while the meter relay is commanded OFF. Strong indicator of physical line bridge or relay contact welded bypass.`,
         recommendation: 'Inspect physical meter enclosure immediately. Check for jumper wires across the relay contacts.',
-      };
+      });
     }
-    return {
-      hasAnomaly: false,
-      type: 'NONE',
-      severity: 'LOW',
-      title: 'Normal Idle State',
-      description: 'Relay is OFF. System isolated.',
-      recommendation: 'No action required.',
-    };
-  }
+  } else {
+    // 1. Current Shunt / Bypass Theft
+    if (previousSample && previousSample.activePower > 1200 && activePower < 5 && voltage > 200 && previousSample.voltage > 200) {
+      detected.push({
+        hasAnomaly: true,
+        type: 'CURRENT_SHUNT_THEFT',
+        severity: 'CRITICAL',
+        title: 'Sudden Load Collapse (Suspected Current Shunt)',
+        description: `Active power abruptly dropped from ${previousSample.activePower.toFixed(0)}W to ${activePower.toFixed(0)}W within seconds while grid voltage remained steady at ${voltage.toFixed(1)}V. Possible CT coil bypass or magnetic tampering.`,
+        recommendation: 'Deploy field inspection team to audit meter CT connections and check for external neodymium magnets or shunt jumpers.',
+      });
+    }
 
-  // 1. Current Shunt / Bypass Theft
-  if (previousSample && previousSample.activePower > 1200 && activePower < 5 && voltage > 200 && previousSample.voltage > 200) {
-    return {
-      hasAnomaly: true,
-      type: 'CURRENT_SHUNT_THEFT',
-      severity: 'CRITICAL',
-      title: 'Sudden Load Collapse (Suspected Current Shunt)',
-      description: `Active power abruptly dropped from ${previousSample.activePower.toFixed(0)}W to ${activePower.toFixed(0)}W within seconds while grid voltage remained steady at ${voltage.toFixed(1)}V. Possible CT coil bypass or magnetic tampering.`,
-      recommendation: 'Deploy field inspection team to audit meter CT connections and check for external neodymium magnets or shunt jumpers.',
-    };
-  }
-
-  // 2. Unmetered Bypass / Phase Discrepancy
-  const apparentPower = voltage * current;
-  if (apparentPower > 800 && activePower < 40 && current > 3.5) {
-    return {
-      hasAnomaly: true,
-      type: 'UNMETERED_BYPASS',
-      severity: 'HIGH',
-      title: 'Phase Angle Distortion / Neutral Tamper',
-      description: `Apparent power is ${apparentPower.toFixed(0)}VA with ${current.toFixed(2)}A flowing, but registered active power is only ${activePower.toFixed(0)}W (Power Factor: ${powerFactor.toFixed(2)}). Typical of missing neutral or phase inversion tamper.`,
-      recommendation: 'Verify neutral conductor integrity and phase-to-ground isolation at the main service entrance.',
-    };
+    // 2. Unmetered Bypass / Phase Discrepancy
+    const apparentPower = voltage * current;
+    if (apparentPower > 800 && activePower < 40 && current > 3.5) {
+      detected.push({
+        hasAnomaly: true,
+        type: 'UNMETERED_BYPASS',
+        severity: 'HIGH',
+        title: 'Phase Angle Distortion / Neutral Tamper',
+        description: `Apparent power is ${apparentPower.toFixed(0)}VA with ${current.toFixed(2)}A flowing, but registered active power is only ${activePower.toFixed(0)}W (Power Factor: ${powerFactor.toFixed(2)}). Typical of missing neutral or phase inversion tamper.`,
+        recommendation: 'Verify neutral conductor integrity and phase-to-ground isolation at the main service entrance.',
+      });
+    }
   }
 
   // 3. Reverse Current Flow
   if (activePower < -60 || current < -0.3) {
-    return {
+    detected.push({
       hasAnomaly: true,
       type: 'REVERSE_CURRENT',
       severity: 'HIGH',
       title: 'Reverse Power Flow Detected',
       description: `Meter recorded negative active power (${activePower.toFixed(0)}W). Unapproved grid-tied generator or reverse polarity wiring.`,
       recommendation: 'Audit customer on-site generation installations or inspect polarity of meter wiring.',
-    };
+    });
   }
 
   // 4. Voltage Anomalies (Over-voltage >= 250V Critical, 242-250V Warning; Under-voltage < 180V Critical, 180-207V Warning)
   if (voltage >= 250) {
-    return {
+    detected.push({
       hasAnomaly: true,
       type: 'OVERVOLTAGE',
       severity: 'CRITICAL',
       title: 'Critical Over-voltage Hazard (>= 250V)',
       description: `Dangerous line over-voltage: measured ${voltage.toFixed(1)}V (>= 250V threshold). Extreme risk of insulation breakdown, equipment fire, and immediate electronics destruction.`,
       recommendation: 'Remotely trip meter relay or isolate sensitive appliances and electronic equipment immediately.',
-    };
-  }
-
-  if (voltage < 180) {
-    return {
-      hasAnomaly: true,
-      type: 'UNDERVOLTAGE',
-      severity: 'CRITICAL',
-      title: 'Critical Under-voltage Sag (< 180V)',
-      description: `Severe line under-voltage sag: measured ${voltage.toFixed(1)}V (< 180V threshold). Severe brownout condition risking motor compressor burnout and equipment failure.`,
-      recommendation: 'Disconnect AC compressors, refrigeration units, and high-draw inductive equipment to prevent winding burnout.',
-    };
-  }
-
-  if (voltage >= 180 && voltage < 207) {
-    return {
-      hasAnomaly: true,
-      type: 'UNDERVOLTAGE',
-      severity: 'MEDIUM',
-      title: 'Under-voltage Warning (180V - 207V)',
-      description: `Line voltage sagged to ${voltage.toFixed(1)}V (below standard 207V lower limit, within 180V - 207V warning band). Equipment may experience degraded performance or brownout stress.`,
-      recommendation: 'Inspect service entrance wiring, check distribution transformer tap, and avoid running heavy inductive motors.',
-    };
-  }
-
-  if (voltage >= 242 && voltage < 250) {
-    return {
+    });
+  } else if (voltage >= 242 && voltage < 250) {
+    detected.push({
       hasAnomaly: true,
       type: 'OVERVOLTAGE',
       severity: 'MEDIUM',
       title: 'Over-voltage Warning (242V - 250V)',
       description: `Line voltage elevated to ${voltage.toFixed(1)}V (exceeds nominal band, approaching 250V critical limit).`,
       recommendation: 'Monitor grid voltage regulation and ensure surge arresters are active.',
-    };
+    });
+  } else if (voltage > 0 && voltage < 180) {
+    detected.push({
+      hasAnomaly: true,
+      type: 'UNDERVOLTAGE',
+      severity: 'CRITICAL',
+      title: 'Critical Under-voltage Sag (< 180V)',
+      description: `Severe line under-voltage sag: measured ${voltage.toFixed(1)}V (< 180V threshold). Severe brownout condition risking motor compressor burnout and equipment failure.`,
+      recommendation: 'Disconnect AC compressors, refrigeration units, and high-draw inductive equipment to prevent winding burnout.',
+    });
+  } else if (voltage >= 180 && voltage < 207) {
+    detected.push({
+      hasAnomaly: true,
+      type: 'UNDERVOLTAGE',
+      severity: 'MEDIUM',
+      title: 'Under-voltage Warning (180V - 207V)',
+      description: `Line voltage sagged to ${voltage.toFixed(1)}V (below standard 207V lower limit, within 180V - 207V warning band). Equipment may experience degraded performance or brownout stress.`,
+      recommendation: 'Inspect service entrance wiring, check distribution transformer tap, and avoid running heavy inductive motors.',
+    });
   }
 
   // 5. Overcurrent & Surge Hazard
   if (current > 42 || activePower > 9500) {
-    return {
+    detected.push({
       hasAnomaly: true,
       type: 'SURGE_SPIKE',
       severity: 'CRITICAL',
       title: 'Overcurrent Overload Warning',
       description: `Sustained current draw reached ${current.toFixed(1)}A (Active Power: ${(activePower / 1000).toFixed(2)} kW), exceeding standard residential service rating (40A). High thermal fire risk.`,
       recommendation: 'Remotely trip meter relay or switch off heavy inductive appliances immediately to prevent thermal breaker failure.',
-    };
+    });
   }
 
   // 6. Severe Voltage Sag Under Load
-  if (voltage < 190 && current > 20) {
-    return {
+  if (voltage > 0 && voltage < 190 && current > 20) {
+    detected.push({
       hasAnomaly: true,
       type: 'VOLTAGE_DROP_HIGH_DRAW',
       severity: 'HIGH',
       title: 'Severe Voltage Sag Under High Load',
       description: `Line voltage collapsed to ${voltage.toFixed(1)}V under a ${current.toFixed(1)}A load. Indicates excessive voltage drop or illegal secondary tapping.`,
       recommendation: 'Check distribution drop cable and inspect meter terminal block for hot spots.',
-    };
+    });
   }
 
   // 7. Frequency Deviation
-  if (frequency < 47.5 || frequency > 52.5) {
-    return {
+  if (frequency > 0 && (frequency < 47.5 || frequency > 52.5)) {
+    const isCriticalFreq = frequency <= 45.0 || frequency >= 55.0;
+    detected.push({
       hasAnomaly: true,
       type: 'FREQUENCY_INSTABILITY',
-      severity: 'MEDIUM',
-      title: 'Grid Frequency Anomaly',
+      severity: isCriticalFreq ? 'CRITICAL' : 'MEDIUM',
+      title: `Grid Frequency Anomaly (${frequency.toFixed(2)} Hz)`,
       description: `Frequency shifted to ${frequency.toFixed(2)}Hz (Normal range: 49.5 - 50.5 Hz). Potential local generator oscillation or grid instability.`,
       recommendation: 'Monitor frequency trend; notify local grid operator if frequency fails to recover.',
+    });
+  }
+
+  detected.sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]);
+  return detected;
+}
+
+export function analyzeTelemetryForAnomalies(sample: TelemetrySample): AnomalyDetectionResult {
+  const all = analyzeAllTelemetryAnomalies(sample);
+
+  if (all.length === 0) {
+    if (sample.relayState === 'OFF') {
+      return {
+        hasAnomaly: false,
+        type: 'NONE',
+        severity: 'LOW',
+        title: 'Normal Idle State',
+        description: 'Relay is OFF. System isolated.',
+        recommendation: 'No action required.',
+      };
+    }
+    return {
+      hasAnomaly: false,
+      type: 'NONE',
+      severity: 'LOW',
+      title: 'Optimal Grid Operation',
+      description: 'All voltage, current, power factor, and frequency metrics are within normal IEC/IEEE parameters.',
+      recommendation: 'Routine periodic monitoring active.',
     };
   }
 
-  // Healthy
+  if (all.length === 1) {
+    return all[0];
+  }
+
+  const primary = all[0];
   return {
-    hasAnomaly: false,
-    type: 'NONE',
-    severity: 'LOW',
-    title: 'Optimal Grid Operation',
-    description: 'All voltage, current, power factor, and frequency metrics are within normal IEC/IEEE parameters.',
-    recommendation: 'Routine periodic monitoring active.',
+    hasAnomaly: true,
+    type: primary.type,
+    severity: primary.severity,
+    title: `${all.length} Simultaneous Anomalies: ${all.map(a => a.title).join(' + ')}`,
+    description: all.map((a, idx) => `[${idx + 1}] ${a.description}`).join(' '),
+    recommendation: all.map(a => a.recommendation).join(' '),
   };
 }
 
@@ -215,6 +241,70 @@ function parseFsFields(fields: Record<string, any>): Record<string, any> {
     out[k] = parseFsVal(v);
   }
   return out;
+}
+
+function toFsVal(val: any): any {
+  if (val === null || val === undefined) return { nullValue: null };
+  if (typeof val === 'boolean') return { booleanValue: val };
+  if (typeof val === 'number') return { doubleValue: Number.isFinite(val) ? val : 0 };
+  if (typeof val === 'string') return { stringValue: val };
+  if (Array.isArray(val)) return { arrayValue: { values: val.map(toFsVal) } };
+  if (typeof val === 'object') return { mapValue: { fields: toFsFields(val) } };
+  return { stringValue: String(val) };
+}
+
+function toFsFields(obj: Record<string, any>): Record<string, any> {
+  const fields: Record<string, any> = {};
+  for (const [k, v] of Object.entries(obj || {})) {
+    if (v !== undefined) {
+      fields[k] = toFsVal(v);
+    }
+  }
+  return fields;
+}
+
+async function persistMeterToFirestore(meter: any, log?: any, alerts?: any): Promise<void> {
+  if (!meter || !meter.meterId || !meter.apiKey) return;
+  try {
+    const writes: Promise<any>[] = [
+      fetch(`${FIRESTORE_BASE_URL}/meters/${encodeURIComponent(meter.meterId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: toFsFields(meter) }),
+      }).catch(() => {}),
+    ];
+
+    if (log && log.id) {
+      writes.push(
+        fetch(
+          `${FIRESTORE_BASE_URL}/meters/${encodeURIComponent(meter.meterId)}/telemetry?documentId=${encodeURIComponent(log.id)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: toFsFields(log) }),
+          }
+        ).catch(() => {})
+      );
+    }
+
+    const alertList = Array.isArray(alerts) ? alerts : alerts ? [alerts] : [];
+    for (const alert of alertList) {
+      if (alert && alert.id) {
+        writes.push(
+          fetch(
+            `${FIRESTORE_BASE_URL}/meters/${encodeURIComponent(meter.meterId)}/anomalies?documentId=${encodeURIComponent(alert.id)}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fields: toFsFields(alert) }),
+            }
+          ).catch(() => {})
+        );
+      }
+    }
+
+    await Promise.allSettled(writes);
+  } catch {}
 }
 
 async function fetchMeterFromFirestore(meterId: string): Promise<any | null> {
@@ -545,7 +635,48 @@ export default async function handler(req: any, res: any) {
           if (!current) {
             globalMeters.set(m.meterId, m);
           } else {
-            globalMeters.set(m.meterId, { ...current, ...m, apiKey: m.apiKey || current.apiKey });
+            const currentHb = new Date(current.lastHeartbeat || 0).getTime() || 0;
+            const incomingHb = new Date(m.lastHeartbeat || 0).getTime() || 0;
+            const currentUpd = new Date(current.updatedAt || current.lastHeartbeat || 0).getTime() || 0;
+            const incomingUpd = new Date(m.updatedAt || m.lastHeartbeat || 0).getTime() || 0;
+
+            const telSrc = incomingHb >= currentHb && incomingHb > 0 ? m : current;
+            const metaSrc = incomingUpd >= currentUpd ? m : current;
+
+            let hasAnomaly = current.hasAnomaly;
+            let anomalyType = current.anomalyType;
+            let anomalySeverity = current.anomalySeverity;
+            let anomalyDescription = current.anomalyDescription;
+
+            if (incomingHb > currentHb) {
+              hasAnomaly = m.hasAnomaly;
+              anomalyType = m.anomalyType;
+              anomalySeverity = m.anomalySeverity;
+              anomalyDescription = m.anomalyDescription;
+            } else if (incomingUpd >= currentUpd) {
+              hasAnomaly = m.hasAnomaly;
+              anomalyType = m.anomalyType;
+              anomalySeverity = m.anomalySeverity;
+              anomalyDescription = m.anomalyDescription;
+            }
+
+            globalMeters.set(m.meterId, {
+              ...current,
+              ...metaSrc,
+              voltage: telSrc.voltage,
+              current: telSrc.current,
+              activePower: telSrc.activePower,
+              reactivePower: telSrc.reactivePower,
+              powerFactor: telSrc.powerFactor,
+              frequency: telSrc.frequency,
+              totalEnergy: telSrc.totalEnergy,
+              lastHeartbeat: telSrc.lastHeartbeat || current.lastHeartbeat || m.lastHeartbeat,
+              hasAnomaly,
+              anomalyType,
+              anomalySeverity,
+              anomalyDescription,
+              apiKey: m.apiKey || current.apiKey,
+            });
           }
         }
       }
@@ -591,12 +722,37 @@ export default async function handler(req: any, res: any) {
       };
       globalMeters.set(meterId, newMeter);
       saveMetersToDisk();
+      await persistMeterToFirestore(newMeter);
       return sendResponse(res, 201, { success: true, meter: newMeter });
     }
 
     const meterId = (payload.meterId || queryMeterId)?.trim();
     if (!meterId) {
       return sendResponse(res, 400, { success: false, error: "Validation failed: 'meterId' is required in request body" });
+    }
+
+    // Check if this is an acknowledge_anomaly request (clears banner while preserving telemetry readings)
+    if (payload.action === 'acknowledge_anomaly' || action === 'acknowledge_anomaly' || pathname.endsWith('/resolve')) {
+      const meter = await ensureMeterLoaded(meterId);
+      if (!meter) {
+        return sendResponse(res, 404, { success: false, error: `Meter '${meterId}' not found` });
+      }
+      meter.hasAnomaly = false;
+      meter.anomalyType = 'NONE';
+      meter.anomalySeverity = 'LOW';
+      meter.anomalyDescription = 'Operating normally';
+      meter.updatedAt = now;
+      globalMeters.set(meterId, meter);
+      const alerts = globalAnomalies.get(meterId) || [];
+      alerts.forEach((a: any) => {
+        if (!payload.alertId || a.id === payload.alertId) {
+          a.status = 'RESOLVED';
+        }
+      });
+      globalAnomalies.set(meterId, alerts);
+      saveMetersToDisk();
+      await persistMeterToFirestore(meter);
+      return sendResponse(res, 200, { success: true, meterId, meter });
     }
 
     // Check if this is an API key rotation request (strictly auto-generate 16-character key)
@@ -610,6 +766,7 @@ export default async function handler(req: any, res: any) {
       meter.updatedAt = now;
       globalMeters.set(meterId, meter);
       saveMetersToDisk();
+      await persistMeterToFirestore(meter);
       return sendResponse(res, 200, { success: true, meterId, apiKey: newKey, meter });
     }
 
@@ -786,6 +943,7 @@ export default async function handler(req: any, res: any) {
       previousSample: prevSample,
     };
 
+    const allAnomalies = analyzeAllTelemetryAnomalies(sample);
     const anomalyResult = analyzeTelemetryForAnomalies(sample);
 
     existingMeter.voltage = voltage;
@@ -830,33 +988,44 @@ export default async function handler(req: any, res: any) {
     if (meterLogs.length > 200) meterLogs.shift();
     globalLogs.set(meterId, meterLogs);
 
-    let anomalyAlert: any = null;
-    if (anomalyResult.hasAnomaly) {
-      const alertId = `ALT-${Date.now()}`;
-      anomalyAlert = {
-        id: alertId,
-        meterId,
-        ownerUid: existingMeter.ownerUid,
-        type: anomalyResult.type,
-        severity: anomalyResult.severity,
-        title: anomalyResult.title,
-        description: anomalyResult.description,
-        status: 'ACTIVE',
-        telemetrySnapshot: {
-          voltage,
-          current,
-          activePower,
-          reactivePower,
-          energy,
-          timestamp: now,
-        },
-        createdAt: now,
-      };
+    const anomalyAlerts: any[] = [];
+    if (allAnomalies.length > 0) {
+      const baseMs = Date.now();
       const alerts = globalAnomalies.get(meterId) || [];
-      alerts.unshift(anomalyAlert);
-      if (alerts.length > 50) alerts.pop();
+
+      allAnomalies.forEach((anomItem, idx) => {
+        const alertId = `ALT-${baseMs}-${idx}-${anomItem.type}`;
+        const alertObj = {
+          id: alertId,
+          meterId,
+          ownerUid: existingMeter.ownerUid,
+          type: anomItem.type,
+          severity: anomItem.severity,
+          title: anomItem.title,
+          description: anomItem.description,
+          status: 'ACTIVE',
+          telemetrySnapshot: {
+            voltage,
+            current,
+            activePower,
+            reactivePower,
+            energy,
+            timestamp: now,
+          },
+          createdAt: new Date(baseMs + idx).toISOString(),
+        };
+        anomalyAlerts.push(alertObj);
+        alerts.unshift(alertObj);
+      });
+
+      if (alerts.length > 100) alerts.length = 100;
       globalAnomalies.set(meterId, alerts);
     }
+
+    const anomalyAlert = anomalyAlerts[0] || null;
+
+    saveMetersToDisk();
+    await persistMeterToFirestore(existingMeter, log, anomalyAlerts);
 
     return sendResponse(res, 200, {
       success: true,
@@ -864,7 +1033,9 @@ export default async function handler(req: any, res: any) {
       relayState: existingMeter.relayState,
       anomalyDetected: anomalyResult.hasAnomaly,
       anomaly: anomalyResult,
+      anomaliesDetected: allAnomalies,
       anomalyAlert,
+      anomalyAlerts,
       meter: existingMeter,
       log,
       telemetryLog: log,

@@ -22,7 +22,8 @@ import {
   clearMeterDeletedMarker,
   ensureMeterLoaded,
   persistMeterToFirestore,
-  resetAllMeters
+  resetAllMeters,
+  acknowledgeAnomaly
 } from './src/server/telemetryHandler';
 import type { NotificationPreferences, Meter } from './src/types/energy';
 
@@ -83,6 +84,12 @@ app.post('/api/telemetry/ingest', async (req, res) => {
       const metersToSync = Array.isArray(payload.meters) ? payload.meters : (payload.meter ? [payload.meter] : []);
       syncMeters(metersToSync, Boolean(payload.replaceAll), payload.deletedIds);
       return res.json({ success: true, count: activeMeters.size });
+    }
+
+    if (action === 'acknowledge_anomaly') {
+      const targetId = ((req.query.meterId as string) || payload.meterId || '').trim();
+      const updated = targetId ? await acknowledgeAnomaly(targetId) : undefined;
+      return res.json({ success: true, meterId: targetId, meter: updated });
     }
 
     if (action === 'register_meter') {

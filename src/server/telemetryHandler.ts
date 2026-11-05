@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { analyzeTelemetryForAnomalies, TelemetrySample } from '../utils/anomalyDetector';
+import { analyzeTelemetryForAnomalies, analyzeAllTelemetryAnomalies, TelemetrySample } from '../utils/anomalyDetector';
 import { AnomalyAlert, Meter, RelayState, TelemetryLog, NotificationPreferences } from '../types/energy';
 
 // Persistent in-memory cache synchronized with storage
@@ -118,7 +118,7 @@ export async function fetchMeterFromFirestore(meterId: string): Promise<Meter | 
 export async function persistMeterToFirestore(
   meter: Meter,
   log?: TelemetryLog,
-  alert?: AnomalyAlert
+  alerts?: AnomalyAlert | AnomalyAlert[]
 ): Promise<void> {
   if (!meter || !meter.meterId || !meter.apiKey) return;
   try {
@@ -139,15 +139,18 @@ export async function persistMeterToFirestore(
       ).catch(() => {});
     }
 
-    if (alert && alert.id) {
-      await fetch(
-        `${FIRESTORE_BASE_URL}/meters/${encodeURIComponent(meter.meterId)}/anomalies?documentId=${encodeURIComponent(alert.id)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fields: toFirestoreFields(alert as any) }),
-        }
-      ).catch(() => {});
+    const alertList = Array.isArray(alerts) ? alerts : alerts ? [alerts] : [];
+    for (const alert of alertList) {
+      if (alert && alert.id) {
+        await fetch(
+          `${FIRESTORE_BASE_URL}/meters/${encodeURIComponent(meter.meterId)}/anomalies?documentId=${encodeURIComponent(alert.id)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: toFirestoreFields(alert as any) }),
+          }
+        ).catch(() => {});
+      }
     }
   } catch {
     // Non-fatal background sync error
@@ -257,15 +260,68 @@ export function syncMeters(meters: Meter[], _replaceAll = false, deletedIds?: st
           status: evaluateOnlineStatus(m.lastHeartbeat),
         });
       } else {
+        const existingHb = new Date(existing.lastHeartbeat || 0).getTime() || 0;
+        const incomingHb = new Date(m.lastHeartbeat || 0).getTime() || 0;
+        const existingUpd = new Date(existing.updatedAt || existing.lastHeartbeat || 0).getTime() || 0;
+        const incomingUpd = new Date(m.updatedAt || m.lastHeartbeat || 0).getTime() || 0;
+
+        const telSrc = incomingHb >= existingHb && incomingHb > 0 ? m : existing;
+        const metaSrc = incomingUpd >= existingUpd ? m : existing;
+
+        let hasAnomaly = existing.hasAnomaly;
+        let anomalyType = existing.anomalyType;
+        let anomalySeverity = existing.anomalySeverity;
+        let anomalyDescription = existing.anomalyDescription;
+
+        if (incomingHb > existingHb) {
+          hasAnomaly = m.hasAnomaly;
+          anomalyType = m.anomalyType;
+          anomalySeverity = m.anomalySeverity;
+          anomalyDescription = m.anomalyDescription;
+        } else if (incomingUpd >= existingUpd) {
+          hasAnomaly = m.hasAnomaly;
+          anomalyType = m.anomalyType;
+          anomalySeverity = m.anomalySeverity;
+          anomalyDescription = m.anomalyDescription;
+        }
+
+        const bestHeartbeat = telSrc.lastHeartbeat || existing.lastHeartbeat || m.lastHeartbeat;
         activeMeters.set(m.meterId, {
           ...existing,
-          ...m,
+          ...metaSrc,
+          voltage: telSrc.voltage,
+          current: telSrc.current,
+          activePower: telSrc.activePower,
+          reactivePower: telSrc.reactivePower,
+          powerFactor: telSrc.powerFactor,
+          frequency: telSrc.frequency,
+          totalEnergy: telSrc.totalEnergy,
+          lastHeartbeat: bestHeartbeat,
+          hasAnomaly,
+          anomalyType,
+          anomalySeverity,
+          anomalyDescription,
+          status: evaluateOnlineStatus(bestHeartbeat),
           apiKey: m.apiKey || existing.apiKey,
         });
       }
     }
   }
   saveMetersToDisk();
+}
+
+export async function acknowledgeAnomaly(meterId: string): Promise<Meter | undefined> {
+  const meter = await ensureMeterLoaded(meterId);
+  if (!meter) return undefined;
+  meter.hasAnomaly = false;
+  meter.anomalyType = 'NONE';
+  meter.anomalySeverity = 'LOW';
+  meter.anomalyDescription = 'Operating normally';
+  meter.updatedAt = new Date().toISOString();
+  activeMeters.set(meterId, meter);
+  saveMetersToDisk();
+  await persistMeterToFirestore(meter).catch(() => {});
+  return meter;
 }
 
 // Custom error with HTTP status code
@@ -616,7 +672,8 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     previousSample: prevSample,
   };
 
-  // Run Anomaly and Theft Detection Algorithm
+  // Run Anomaly and Theft Detection Algorithm (both individual list and combined summary)
+  const allAnomalies = analyzeAllTelemetryAnomalies(sample);
   const anomalyResult = analyzeTelemetryForAnomalies(sample);
 
   // Update Existing Meter
@@ -675,33 +732,40 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
   }
   telemetryStore.set(meterId, currentLogs);
 
-  // If anomaly detected, log an active alert
-  let anomalyAlert: AnomalyAlert | undefined = undefined;
-  if (anomalyResult.hasAnomaly) {
-    const alertId = `ALT-${Date.now()}`;
-    anomalyAlert = {
-      id: alertId,
-      meterId,
-      ownerUid: meter.ownerUid,
-      type: anomalyResult.type,
-      severity: anomalyResult.severity,
-      title: anomalyResult.title,
-      description: anomalyResult.description,
-      status: 'ACTIVE',
-      telemetrySnapshot: {
-        voltage,
-        current,
-        activePower,
-        reactivePower,
-        energy,
-        timestamp: now,
-      },
-      createdAt: now,
-    };
-
+  // Log EVERY detected anomaly in this telemetry sample to the Anomalies store
+  const anomalyAlerts: AnomalyAlert[] = [];
+  if (allAnomalies.length > 0) {
+    const baseMs = Date.now();
     const meterAlerts = anomalyStore.get(meterId) || [];
-    meterAlerts.unshift(anomalyAlert);
-    if (meterAlerts.length > 100) meterAlerts.pop();
+
+    allAnomalies.forEach((anomItem, idx) => {
+      const alertId = `ALT-${baseMs}-${idx}-${anomItem.type}`;
+      const alertObj: AnomalyAlert = {
+        id: alertId,
+        meterId,
+        ownerUid: meter.ownerUid,
+        type: anomItem.type,
+        severity: anomItem.severity,
+        title: anomItem.title,
+        description: anomItem.description,
+        status: 'ACTIVE',
+        telemetrySnapshot: {
+          voltage,
+          current,
+          activePower,
+          reactivePower,
+          energy,
+          timestamp: now,
+        },
+        createdAt: new Date(baseMs + idx).toISOString(),
+      };
+      anomalyAlerts.push(alertObj);
+      meterAlerts.unshift(alertObj);
+    });
+
+    if (meterAlerts.length > 100) {
+      meterAlerts.length = 100;
+    }
     anomalyStore.set(meterId, meterAlerts);
 
     // Evaluate notification preferences
@@ -711,8 +775,10 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     }
   }
 
-  // Persist updated meter state and telemetry log to Firestore in background
-  persistMeterToFirestore(meter, log, anomalyAlert).catch(() => {});
+  const anomalyAlert = anomalyAlerts[0];
+
+  // Persist updated meter state, telemetry log, and all anomaly alerts to Firestore
+  persistMeterToFirestore(meter, log, anomalyAlerts).catch(() => {});
 
   return {
     success: true,
@@ -720,7 +786,9 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     relayState: meter.relayState,
     anomalyDetected: anomalyResult.hasAnomaly,
     anomaly: anomalyResult,
+    anomaliesDetected: allAnomalies,
     anomalyAlert,
+    anomalyAlerts,
     meter,
     log,
     timestamp: now,

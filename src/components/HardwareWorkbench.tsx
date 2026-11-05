@@ -375,8 +375,8 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
                   </div>
                   <input
                     type="range"
-                    min="46"
-                    max="54"
+                    min="40"
+                    max="65"
                     step="0.05"
                     value={simFreq}
                     onChange={e => setSimFreq(parseFloat(e.target.value))}

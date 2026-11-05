@@ -402,7 +402,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>GPS Location</span>
               </button>
 
-              {/* Tab 4: Theft Shield */}
+              {/* Tab 4: Anomaly */}
               <button
                 type="button"
                 onClick={() => setActiveTab('anomalies')}
@@ -413,7 +413,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }`}
               >
                 <ShieldAlert className="w-3.5 h-3.5" />
-                <span>Theft Shield</span>
+                <span>Anomaly</span>
                 {activeMeter?.hasAnomaly && (
                   <span className="relative flex h-2 w-2 ml-1">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>

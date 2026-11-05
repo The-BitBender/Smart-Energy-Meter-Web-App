@@ -38,7 +38,7 @@ import { SettingsTab } from './components/SettingsTab';
 import { AuthPage } from './components/AuthPage';
 import { MeterOnboardingModal } from './components/MeterOnboardingModal';
 import { Activity, ShieldCheck, Zap, Radio, AlertCircle, Plus, Cpu } from 'lucide-react';
-import { reconcileMeter, reconcileAnomalies, formatLastSeen, generate16CharApiKey, formatMeterId } from './utils/statusHelper';
+import { reconcileMeter, reconcileAnomalies, reconcileTelemetryLogs, formatLastSeen, generate16CharApiKey, formatMeterId } from './utils/statusHelper';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -57,6 +57,9 @@ export default function App() {
 
   // In-memory tracking of actively deleted meter IDs (never persisted as a permanent blacklist across creations)
   const deletedMeterIdsRef = React.useRef<Set<string>>(new Set());
+  const syncedLogIdsRef = React.useRef<Set<string>>(new Set());
+  const syncedAlertIdsRef = React.useRef<Set<string>>(new Set());
+  const lastSyncedHeartbeatRef = React.useRef<Map<string, string>>(new Map());
 
   const markMeterDeleted = useCallback((meterId: string) => {
     deletedMeterIdsRef.current.add(meterId);
@@ -258,25 +261,27 @@ export default function App() {
 
           const deletedIdsList = Array.from(deletedMeterIdsRef.current);
 
-          // Sync user meters to backend
-          fetch('/api/meters/sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ meters: loadedMeters, deletedIds: deletedIdsList }),
-          }).catch(() => {});
-          fetch('/api/telemetry/ingest', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'sync_meters', meters: loadedMeters, deletedIds: deletedIdsList }),
-          }).catch(() => {});
-
-          // Firestore is authoritative: only keep meters present in loadedMeters
+          // Firestore is authoritative for meter list; reconcile with local state so newer telemetry is never reverted
           setMeters((prevMeters) => {
             const prevMap = new Map<string, Meter>();
             prevMeters.forEach(m => prevMap.set(m.meterId, m));
-            return loadedMeters
+            const reconciledList = loadedMeters
               .filter(m => !deletedMeterIdsRef.current.has(m.meterId))
               .map(m => reconcileMeter(prevMap.get(m.meterId), m));
+
+            // Sync reconciled user meters to backend
+            fetch('/api/meters/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ meters: reconciledList, deletedIds: deletedIdsList }),
+            }).catch(() => {});
+            fetch('/api/telemetry/ingest', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'sync_meters', meters: reconciledList, deletedIds: deletedIdsList }),
+            }).catch(() => {});
+
+            return reconciledList;
           });
 
           setActiveMeter((prev) => {
@@ -318,6 +323,7 @@ export default function App() {
 
         let latestMeterData: any = null;
         let latestLogData: any = null;
+        const discoveredAlerts: AnomalyAlert[] = [];
 
         if (latestRes.ok) {
           const data = await latestRes.json();
@@ -326,11 +332,13 @@ export default function App() {
           }
           if (data?.latestLog) {
             latestLogData = data.latestLog;
+            setTelemetryLogs(prev => reconcileTelemetryLogs(prev, [data.latestLog]));
           }
           if (data?.logs && data.logs.length > 0) {
-            setTelemetryLogs(data.logs);
+            setTelemetryLogs(prev => reconcileTelemetryLogs(prev, data.logs));
           }
           if (data?.alerts && data.alerts.length > 0) {
+            discoveredAlerts.push(...data.alerts);
             setAnomalies(prev => reconcileAnomalies(prev, data.alerts));
           }
         }
@@ -339,13 +347,14 @@ export default function App() {
         if (!latestLogData && telRes.ok) {
           const telData = await telRes.json();
           if (telData.logs && telData.logs.length > 0) {
-            setTelemetryLogs(telData.logs);
+            setTelemetryLogs(prev => reconcileTelemetryLogs(prev, telData.logs));
             latestLogData = telData.logs[telData.logs.length - 1];
           }
         }
         if (anomRes.ok) {
           const anomData = await anomRes.json();
           if (anomData.alerts && anomData.alerts.length > 0) {
+            discoveredAlerts.push(...anomData.alerts);
             setAnomalies(prev => reconcileAnomalies(prev, anomData.alerts));
           }
         }
@@ -354,7 +363,20 @@ export default function App() {
         if (latestMeterData && !deletedMeterIdsRef.current.has(meterId)) {
           setActiveMeter((prev) => {
             if (!prev || prev.meterId !== meterId || deletedMeterIdsRef.current.has(meterId)) return prev;
-            return reconcileMeter(prev, latestMeterData);
+            const next = reconcileMeter(prev, latestMeterData);
+            if (
+              next.lastHeartbeat === prev.lastHeartbeat &&
+              next.updatedAt === prev.updatedAt &&
+              next.hasAnomaly === prev.hasAnomaly &&
+              next.relayState === prev.relayState &&
+              next.voltage === prev.voltage &&
+              next.current === prev.current &&
+              next.activePower === prev.activePower &&
+              next.totalEnergy === prev.totalEnergy
+            ) {
+              return prev;
+            }
+            return next;
           });
 
           setMeters((prevList) =>
@@ -363,36 +385,55 @@ export default function App() {
               .map((item) => (item.meterId === meterId ? reconcileMeter(item, latestMeterData) : item))
           );
 
-          // Authenticated Firestore real-time sync (use updateDoc so deleted documents are NEVER re-created)
+          // Authenticated Firestore real-time sync: ONLY write when a new heartbeat/reading or new log/alert arrives
           if (user && !deletedMeterIdsRef.current.has(meterId)) {
             try {
-              await updateDoc(doc(db, 'meters', meterId), {
-                voltage: latestMeterData.voltage,
-                current: latestMeterData.current,
-                activePower: latestMeterData.activePower,
-                reactivePower: latestMeterData.reactivePower,
-                powerFactor: latestMeterData.powerFactor,
-                frequency: latestMeterData.frequency,
-                totalEnergy: latestMeterData.totalEnergy,
-                relayState: latestMeterData.relayState,
-                status: latestMeterData.status,
-                lastHeartbeat: latestMeterData.lastHeartbeat,
-                hasAnomaly: latestMeterData.hasAnomaly,
-                anomalyType: latestMeterData.anomalyType,
-                anomalySeverity: latestMeterData.anomalySeverity,
-                anomalyDescription: latestMeterData.anomalyDescription,
-                updatedAt: latestMeterData.updatedAt || new Date().toISOString(),
-              });
+              const incomingHb = latestMeterData.lastHeartbeat || latestMeterData.updatedAt || '';
+              if (incomingHb && lastSyncedHeartbeatRef.current.get(meterId) !== incomingHb) {
+                lastSyncedHeartbeatRef.current.set(meterId, incomingHb);
+                await updateDoc(doc(db, 'meters', meterId), {
+                  voltage: latestMeterData.voltage,
+                  current: latestMeterData.current,
+                  activePower: latestMeterData.activePower,
+                  reactivePower: latestMeterData.reactivePower,
+                  powerFactor: latestMeterData.powerFactor,
+                  frequency: latestMeterData.frequency,
+                  totalEnergy: latestMeterData.totalEnergy,
+                  relayState: latestMeterData.relayState,
+                  status: latestMeterData.status,
+                  lastHeartbeat: latestMeterData.lastHeartbeat,
+                  hasAnomaly: latestMeterData.hasAnomaly,
+                  anomalyType: latestMeterData.anomalyType,
+                  anomalySeverity: latestMeterData.anomalySeverity,
+                  anomalyDescription: latestMeterData.anomalyDescription,
+                  updatedAt: latestMeterData.updatedAt || new Date().toISOString(),
+                });
+              }
 
-              if (latestLogData) {
+              if (latestLogData && latestLogData.id && !syncedLogIdsRef.current.has(latestLogData.id)) {
+                syncedLogIdsRef.current.add(latestLogData.id);
                 await setDoc(
-                  doc(db, 'meters', meterId, 'telemetry', latestLogData.id || `TL-${Date.now()}`),
+                  doc(db, 'meters', meterId, 'telemetry', latestLogData.id),
                   {
                     ...latestLogData,
                     ownerUid: user.uid,
                   },
                   { merge: true }
                 );
+              }
+
+              for (const alertItem of discoveredAlerts) {
+                if (alertItem && alertItem.id && !syncedAlertIdsRef.current.has(alertItem.id)) {
+                  syncedAlertIdsRef.current.add(alertItem.id);
+                  await setDoc(
+                    doc(db, 'meters', meterId, 'anomalies', alertItem.id),
+                    {
+                      ...alertItem,
+                      ownerUid: user.uid,
+                    },
+                    { merge: true }
+                  );
+                }
               }
             } catch (fsErr) {
               // Ignore if document was deleted
@@ -421,7 +462,9 @@ export default function App() {
         unsubscribeTel = onSnapshot(telQuery, (snapshot) => {
           const items: TelemetryLog[] = [];
           snapshot.forEach(d => items.push({ ...(d.data() as TelemetryLog), id: d.id }));
-          setTelemetryLogs(items);
+          if (items.length > 0) {
+            setTelemetryLogs(prev => reconcileTelemetryLogs(prev, items));
+          }
         }, (error) => {
           console.warn('Firestore subcollection stream:', error.message);
         });
@@ -672,10 +715,23 @@ export default function App() {
   // Resolve Anomaly Alert
   const handleResolveAlert = async (alertId: string) => {
     if (!activeMeter) return;
+    const now = new Date().toISOString();
+    const currentSnapshot = activeMeter;
     try {
-      await fetch(`/api/meters/${encodeURIComponent(activeMeter.meterId)}/anomalies/${encodeURIComponent(alertId)}/resolve`, {
-        method: 'POST',
-      });
+      await Promise.allSettled([
+        fetch(`/api/meters/${encodeURIComponent(currentSnapshot.meterId)}/anomalies/${encodeURIComponent(alertId)}/resolve`, {
+          method: 'POST',
+        }),
+        fetch('/api/telemetry/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'acknowledge_anomaly',
+            meterId: currentSnapshot.meterId,
+            alertId,
+          }),
+        }),
+      ]);
       setAnomalies(prev => prev.map(a => a.id === alertId ? { ...a, status: 'RESOLVED' } : a));
       setActiveMeter(prev => prev ? {
         ...prev,
@@ -683,12 +739,40 @@ export default function App() {
         anomalyType: 'NONE',
         anomalySeverity: 'LOW',
         anomalyDescription: 'Operating normally',
+        updatedAt: now,
       } : null);
+      setMeters(prev => prev.map(m => m.meterId === currentSnapshot.meterId ? {
+        ...m,
+        hasAnomaly: false,
+        anomalyType: 'NONE',
+        anomalySeverity: 'LOW',
+        anomalyDescription: 'Operating normally',
+        updatedAt: now,
+      } : m));
 
       if (user) {
         try {
-          await updateDoc(doc(db, 'meters', activeMeter.meterId, 'anomalies', alertId), {
+          await updateDoc(doc(db, 'meters', currentSnapshot.meterId, 'anomalies', alertId), {
             status: 'RESOLVED',
+          });
+        } catch {}
+        try {
+          await updateDoc(doc(db, 'meters', currentSnapshot.meterId), {
+            voltage: currentSnapshot.voltage,
+            current: currentSnapshot.current,
+            activePower: currentSnapshot.activePower,
+            reactivePower: currentSnapshot.reactivePower,
+            powerFactor: currentSnapshot.powerFactor,
+            frequency: currentSnapshot.frequency,
+            totalEnergy: currentSnapshot.totalEnergy,
+            lastHeartbeat: currentSnapshot.lastHeartbeat,
+            relayState: currentSnapshot.relayState,
+            status: currentSnapshot.status,
+            hasAnomaly: false,
+            anomalyType: 'NONE',
+            anomalySeverity: 'LOW',
+            anomalyDescription: 'Operating normally',
+            updatedAt: now,
           });
         } catch {}
       }
@@ -697,9 +781,11 @@ export default function App() {
     }
   };
 
-  // Clear anomaly from top banner
+  // Clear anomaly from top banner while keeping all anomaly telemetry readings & logs on the dashboard until replaced by new telemetry
   const handleClearAnomaly = async () => {
     if (!activeMeter) return;
+    const now = new Date().toISOString();
+    const currentSnapshot = activeMeter;
     try {
       setActiveMeter(prev => prev ? {
         ...prev,
@@ -707,15 +793,45 @@ export default function App() {
         anomalyType: 'NONE',
         anomalySeverity: 'LOW',
         anomalyDescription: 'Operating normally',
+        updatedAt: now,
       } : null);
 
+      setMeters(prev => prev.map(m => m.meterId === currentSnapshot.meterId ? {
+        ...m,
+        hasAnomaly: false,
+        anomalyType: 'NONE',
+        anomalySeverity: 'LOW',
+        anomalyDescription: 'Operating normally',
+        updatedAt: now,
+      } : m));
+
+      // Notify backend so subsequent polls keep the anomaly acknowledged without losing telemetry readings
+      fetch('/api/telemetry/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'acknowledge_anomaly',
+          meterId: currentSnapshot.meterId,
+        }),
+      }).catch(() => {});
+
       if (user) {
-        await updateDoc(doc(db, 'meters', activeMeter.meterId), {
+        await updateDoc(doc(db, 'meters', currentSnapshot.meterId), {
+          voltage: currentSnapshot.voltage,
+          current: currentSnapshot.current,
+          activePower: currentSnapshot.activePower,
+          reactivePower: currentSnapshot.reactivePower,
+          powerFactor: currentSnapshot.powerFactor,
+          frequency: currentSnapshot.frequency,
+          totalEnergy: currentSnapshot.totalEnergy,
+          lastHeartbeat: currentSnapshot.lastHeartbeat,
+          relayState: currentSnapshot.relayState,
+          status: currentSnapshot.status,
           hasAnomaly: false,
           anomalyType: 'NONE',
           anomalySeverity: 'LOW',
           anomalyDescription: 'Operating normally',
-          updatedAt: new Date().toISOString(),
+          updatedAt: now,
         });
       }
     } catch (e) {
@@ -884,8 +1000,8 @@ export default function App() {
           data = JSON.parse(text);
         } catch {}
         if (data?.meter) {
-          setActiveMeter(data.meter);
-          setMeters(prev => prev.map(m => m.meterId === activeMeter.meterId ? data.meter : m));
+          setActiveMeter(prev => prev ? reconcileMeter(prev, data.meter) : data.meter);
+          setMeters(prev => prev.map(m => m.meterId === activeMeter.meterId ? reconcileMeter(m, data.meter) : m));
           if (user) {
             try {
               setDoc(doc(db, 'meters', activeMeter.meterId), {
@@ -897,7 +1013,8 @@ export default function App() {
         }
         const incomingLog = data?.telemetryLog || data?.log;
         if (incomingLog) {
-          setTelemetryLogs(prev => [incomingLog, ...prev.slice(0, 99)]);
+          if (incomingLog.id) syncedLogIdsRef.current.add(incomingLog.id);
+          setTelemetryLogs(prev => reconcileTelemetryLogs(prev, [incomingLog]));
           if (user) {
             try {
               setDoc(doc(db, 'meters', activeMeter.meterId, 'telemetry', incomingLog.id || `TL-${Date.now()}`), {
@@ -907,29 +1024,43 @@ export default function App() {
             } catch {}
           }
         }
-        if (data?.anomalyAlert || (data?.anomaly && data.anomaly.hasAnomaly)) {
-          const alertObj = data.anomalyAlert || {
-            id: `ALT-${Date.now()}`,
-            meterId: activeMeter.meterId,
-            ownerUid: user ? user.uid : 'demo_user',
-            type: data.anomaly.type,
-            severity: data.anomaly.severity,
-            title: data.anomaly.title,
-            description: data.anomaly.description,
-            status: 'ACTIVE',
-            telemetrySnapshot: incomingLog || sampleData,
-            createdAt: new Date().toISOString(),
-          };
-          setAnomalies(prev => reconcileAnomalies(prev, [alertObj]));
+
+        // Handle ALL simultaneous anomalies detected in a single telemetry reading
+        const alertList: AnomalyAlert[] = Array.isArray(data?.anomalyAlerts) && data.anomalyAlerts.length > 0
+          ? data.anomalyAlerts
+          : data?.anomalyAlert
+          ? [data.anomalyAlert]
+          : (data?.anomaly && data.anomaly.hasAnomaly)
+          ? [{
+              id: `ALT-${Date.now()}`,
+              meterId: activeMeter.meterId,
+              ownerUid: user ? user.uid : 'demo_user',
+              type: data.anomaly.type,
+              severity: data.anomaly.severity,
+              title: data.anomaly.title,
+              description: data.anomaly.description,
+              status: 'ACTIVE',
+              telemetrySnapshot: incomingLog || sampleData,
+              createdAt: new Date().toISOString(),
+            }]
+          : [];
+
+        if (alertList.length > 0) {
+          setAnomalies(prev => reconcileAnomalies(prev, alertList));
 
           if (user) {
-            try {
-              setDoc(doc(db, 'meters', activeMeter.meterId, 'anomalies', alertObj.id), {
-                ...alertObj,
-                ownerUid: user.uid,
-              }, { merge: true });
-            } catch (fsErr) {
-              console.warn('Firestore sync anomaly error:', fsErr);
+            for (const alertObj of alertList) {
+              if (alertObj && alertObj.id) {
+                syncedAlertIdsRef.current.add(alertObj.id);
+                try {
+                  setDoc(doc(db, 'meters', activeMeter.meterId, 'anomalies', alertObj.id), {
+                    ...alertObj,
+                    ownerUid: user.uid,
+                  }, { merge: true });
+                } catch (fsErr) {
+                  console.warn('Firestore sync anomaly error:', fsErr);
+                }
+              }
             }
           }
         }
