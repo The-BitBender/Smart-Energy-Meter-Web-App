@@ -4,6 +4,7 @@ export interface TelemetrySample {
   voltage: number;
   current: number;
   activePower: number;
+  apparentPower?: number;
   reactivePower: number;
   powerFactor: number;
   frequency: number;
@@ -60,7 +61,7 @@ export function analyzeAllTelemetryAnomalies(sample: TelemetrySample): AnomalyDe
     }
 
     // 2. Unmetered Bypass / Phase Discrepancy
-    const apparentPower = voltage * current;
+    const apparentPower = sample.apparentPower !== undefined ? sample.apparentPower : Math.abs(voltage * current);
     if (apparentPower > 800 && activePower < 40 && current > 3.5) {
       detected.push({
         hasAnomaly: true,
@@ -148,15 +149,20 @@ export function analyzeAllTelemetryAnomalies(sample: TelemetrySample): AnomalyDe
     });
   }
 
-  // 7. Frequency Deviation / Grid Instability
-  if (frequency > 0 && (frequency < 47.5 || frequency > 52.5)) {
-    const isCriticalFreq = frequency <= 45.0 || frequency >= 55.0;
+  // 7. Frequency Deviation / Grid Instability (Normal operating range: 49.5 - 50.5 Hz)
+  if (frequency > 0 && (frequency < 49.5 || frequency > 50.5)) {
+    const freqSeverity: AnomalySeverity =
+      frequency <= 45.0 || frequency >= 55.0
+        ? 'CRITICAL'
+        : frequency < 47.5 || frequency > 52.5
+        ? 'HIGH'
+        : 'MEDIUM';
     detected.push({
       hasAnomaly: true,
       type: 'FREQUENCY_INSTABILITY',
-      severity: isCriticalFreq ? 'CRITICAL' : 'MEDIUM',
+      severity: freqSeverity,
       title: `Grid Frequency Anomaly (${frequency.toFixed(2)} Hz)`,
-      description: `Frequency shifted to ${frequency.toFixed(2)}Hz (Normal range: 49.5 - 50.5 Hz). Potential local generator oscillation or grid instability.`,
+      description: `Frequency shifted to ${frequency.toFixed(2)}Hz (Normal operating range: 49.5 - 50.5 Hz). Potential local generator oscillation, sensor fault, or grid instability.`,
       recommendation: 'Monitor frequency trend; notify local grid operator if frequency fails to recover.',
     });
   }

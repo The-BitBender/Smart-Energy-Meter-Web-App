@@ -39,6 +39,11 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
   const [simCurrent, setSimCurrent] = useState(12.5);
   const [simPF, setSimPF] = useState(0.97);
   const [simFreq, setSimFreq] = useState(50.02);
+  const [simEnergy, setSimEnergy] = useState<number>(() => Number(meter.totalEnergy) || 0);
+
+  React.useEffect(() => {
+    setSimEnergy(Number(meter.totalEnergy) || 0);
+  }, [meter.meterId, meter.totalEnergy]);
 
   // Firmware customizer
   const [wifiSsid, setWifiSsid] = useState('Home_Solar_Grid');
@@ -99,8 +104,9 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
   const handleTransmitSimulation = async () => {
     setIsSending(true);
     const activePower = Math.round(simVoltage * simCurrent * simPF * 10) / 10;
-    const apparent = Math.abs(simVoltage * simCurrent);
-    const reactivePower = Math.round(Math.sqrt(Math.max(0, apparent * apparent - activePower * activePower)) * 10) / 10;
+    const apparentPower = Math.round(Math.abs(simVoltage * simCurrent) * 10) / 10;
+    const reactivePower = Math.round(Math.sqrt(Math.max(0, apparentPower * apparentPower - activePower * activePower)) * 10) / 10;
+    const reportedEnergy = Math.round(Math.max(0, Number(simEnergy) || 0) * 1000) / 1000;
 
     const payload = {
       meterId: meter.meterId,
@@ -108,10 +114,11 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
       voltage: simVoltage,
       current: simCurrent,
       activePower,
+      apparentPower,
       reactivePower,
       powerFactor: simPF,
       frequency: simFreq,
-      energy: Math.round((meter.totalEnergy + 0.015) * 1000) / 1000,
+      energy: reportedEnergy,
       relayState: meter.relayState,
       latitude: meter.latitude,
       longitude: meter.longitude,
@@ -120,7 +127,7 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
 
     const timestamp = new Date().toLocaleTimeString();
     setSerialLogs(prev => [
-      `[${timestamp}] TX -> POST /api/telemetry/ingest [V=${simVoltage}V, I=${simCurrent}A, P=${activePower}W, PF=${simPF}]`,
+      `[${timestamp}] TX -> POST /api/telemetry/ingest [V=${simVoltage}V, I=${simCurrent}A, P=${activePower}W, S=${apparentPower}VA, E=${reportedEnergy}kWh, PF=${simPF}]`,
       ...prev.slice(0, 15),
     ]);
 
@@ -387,14 +394,37 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
                   />
                 </div>
               </div>
+
+              <div>
+                <div className="flex justify-between text-xs font-mono mb-1">
+                  <span className="text-white/75 font-semibold">Meter Cumulative Energy (kWh — Required):</span>
+                  <span className="font-bold text-emerald-300">{Number(simEnergy || 0).toFixed(3)} kWh</span>
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  value={simEnergy}
+                  onChange={e => setSimEnergy(Math.max(0, parseFloat(e.target.value) || 0))}
+                  className="w-full px-3 py-2 rounded-xl bg-[#112327] border border-white/20 text-white font-mono text-xs focus:outline-none focus:border-emerald-400"
+                />
+              </div>
             </div>
 
-            {/* Calculated active power display */}
-            <div className="mt-4 p-3 rounded-xl bg-[#112327] border border-white/15 flex items-center justify-between text-xs font-mono">
-              <span className="text-white/75 font-bold">Calculated Active Power:</span>
-              <span className="font-black text-white text-base">
-                {(simVoltage * simCurrent * simPF).toFixed(0)} Watts
-              </span>
+            {/* Calculated active & apparent power display */}
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="p-3 rounded-xl bg-[#112327] border border-white/15 flex flex-col justify-between text-xs font-mono">
+                <span className="text-white/75 font-bold text-[11px]">Active Power (P):</span>
+                <span className="font-black text-white text-sm mt-0.5">
+                  {(simVoltage * simCurrent * simPF).toFixed(1)} W
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-[#112327] border border-white/15 flex flex-col justify-between text-xs font-mono">
+                <span className="text-white/75 font-bold text-[11px]">Apparent Power (S):</span>
+                <span className="font-black text-white text-sm mt-0.5">
+                  {Math.abs(simVoltage * simCurrent).toFixed(1)} VA
+                </span>
+              </div>
             </div>
 
             {/* Send button */}

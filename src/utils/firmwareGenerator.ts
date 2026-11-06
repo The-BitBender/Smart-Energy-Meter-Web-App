@@ -138,6 +138,7 @@ void sendTelemetry() {
   float voltage = 0.0;
   float current = 0.0;
   float activePower = 0.0;
+  float apparentPower = 0.0;
   float reactivePower = 0.0;
   float powerFactor = 0.98;
   float frequency = 50.0;
@@ -157,6 +158,10 @@ void sendTelemetry() {
     current = 0.0;
     activePower = 0.0;
   }
+  apparentPower = fabs(voltage * current);
+  if (apparentPower >= fabs(activePower)) {
+    reactivePower = sqrt((apparentPower * apparentPower) - (activePower * activePower));
+  }
 ` : `// Reading from ADC / simulated sample
   // Replace with your calibrated ADC conversion logic:
   voltage = 228.5 + (random(-30, 30) / 10.0);
@@ -166,12 +171,12 @@ void sendTelemetry() {
   frequency = 50.01 + (random(-5, 5) / 100.0);
   
   // Apparent Power S = V * I; Reactive Power Q = sqrt(S^2 - P^2)
-  float apparentPower = voltage * current;
+  apparentPower = fabs(voltage * current);
   if (apparentPower >= activePower) {
     reactivePower = sqrt((apparentPower * apparentPower) - (activePower * activePower));
   }
   
-  // Accumulate energy (kWh): Power(W) * dt(h) / 1000
+  // Accumulate energy on the meter (kWh): Power(W) * dt(h) / 1000
   if (relayState) {
     cumulativeEnergyKWh += (activePower * (${reportIntervalSec}.0 / 3600.0)) / 1000.0;
   }
@@ -192,6 +197,7 @@ void sendTelemetry() {
   doc["voltage"] = round(voltage * 100.0) / 100.0;
   doc["current"] = round(current * 100.0) / 100.0;
   doc["activePower"] = round(activePower * 10.0) / 10.0;
+  doc["apparentPower"] = round(apparentPower * 10.0) / 10.0;
   doc["reactivePower"] = round(reactivePower * 10.0) / 10.0;
   doc["powerFactor"] = round(powerFactor * 100.0) / 100.0;
   doc["frequency"] = round(frequency * 100.0) / 100.0;
@@ -273,6 +279,7 @@ while True:
         "voltage": 231.2,
         "current": 5.4 if relay_state == "ON" else 0.0,
         "activePower": 1220.0 if relay_state == "ON" else 0.0,
+        "apparentPower": 1248.5 if relay_state == "ON" else 0.0,
         "reactivePower": 180.0,
         "powerFactor": 0.98,
         "frequency": 50.0,

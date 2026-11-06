@@ -95,6 +95,7 @@ export async function fetchMeterFromFirestore(meterId: string): Promise<Meter | 
       current: Number(data.current) || 0.0,
       activePower: Number(data.activePower) || 0.0,
       peakActivePower: Math.max(Number(data.peakActivePower) || 0.0, Number(data.activePower) || 0.0),
+      apparentPower: data.apparentPower !== undefined ? Number(data.apparentPower) : Math.round(Math.abs((Number(data.voltage) || 0) * (Number(data.current) || 0)) * 10) / 10,
       reactivePower: Number(data.reactivePower) || 0.0,
       powerFactor: Number(data.powerFactor) || 0.0,
       frequency: Number(data.frequency) || 0.0,
@@ -308,6 +309,7 @@ export function syncMeters(meters: Meter[], _replaceAll = false, deletedIds?: st
             Number(existing.activePower) || 0,
             Number(m.activePower) || 0
           ),
+          apparentPower: telSrc.apparentPower !== undefined ? telSrc.apparentPower : Math.round(Math.abs((Number(telSrc.voltage) || 0) * (Number(telSrc.current) || 0)) * 10) / 10,
           reactivePower: telSrc.reactivePower,
           powerFactor: telSrc.powerFactor,
           frequency: telSrc.frequency,
@@ -470,6 +472,7 @@ export interface IngestPayload {
   voltage?: number | string;
   current?: number | string;
   activePower?: number | string;
+  apparentPower?: number | string;
   reactivePower?: number | string;
   powerFactor?: number | string;
   frequency?: number | string;
@@ -670,7 +673,17 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
   }
 
   // Apparent & Reactive Power calculation
-  const apparentPower = Math.abs(voltage * current);
+  let apparentPower: number;
+  if (payload.apparentPower !== undefined) {
+    const parsedS = Number(payload.apparentPower);
+    if (!Number.isFinite(parsedS) || isNaN(parsedS) || parsedS < 0) {
+      throw new IngestionError(400, `Validation failed: 'apparentPower' must be a valid non-negative number, received: ${payload.apparentPower}`);
+    }
+    apparentPower = Math.round(parsedS * 10) / 10;
+  } else {
+    apparentPower = Math.round(Math.abs(voltage * current) * 10) / 10;
+  }
+
   let reactivePower: number;
   if (payload.reactivePower !== undefined) {
     const parsedQ = Number(payload.reactivePower);
@@ -684,15 +697,12 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     reactivePower = 0;
   }
 
-  // Frequency validation
+  // Frequency validation (accept any non-negative finite frequency; out-of-range values trigger FREQUENCY_INSTABILITY anomaly)
   let frequency = meter.frequency || 50.0;
   if (payload.frequency !== undefined) {
     const parsedF = Number(payload.frequency);
-    if (!Number.isFinite(parsedF) || isNaN(parsedF)) {
-      throw new IngestionError(400, `Validation failed: 'frequency' must be a valid number, received: ${payload.frequency}`);
-    }
-    if (parsedF < 40.0 || parsedF > 75.0) {
-      throw new IngestionError(400, `Validation failed: 'frequency' (${parsedF}Hz) must be within 40Hz - 75Hz`);
+    if (!Number.isFinite(parsedF) || isNaN(parsedF) || parsedF < 0) {
+      throw new IngestionError(400, `Validation failed: 'frequency' must be a valid non-negative number, received: ${payload.frequency}`);
     }
     frequency = Math.round(parsedF * 100) / 100;
   }
@@ -706,18 +716,18 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     relayState = payload.relayState;
   }
 
-  // Energy validation
-  let energy = meter.totalEnergy;
-  if (payload.energy !== undefined) {
-    const parsedE = Number(payload.energy);
-    if (!Number.isFinite(parsedE) || isNaN(parsedE) || parsedE < 0) {
-      throw new IngestionError(400, `Validation failed: 'energy' must be a positive number, received: ${payload.energy}`);
-    }
-    energy = Math.round(parsedE * 1000) / 1000;
-  } else {
-    // Increment realistic energy consumption
-    energy = Math.round((meter.totalEnergy + 0.005) * 1000) / 1000;
+  // Energy validation (Mandatory: the meter is the sole source of energy accumulation)
+  if (payload.energy === undefined || payload.energy === null || payload.energy === '') {
+    throw new IngestionError(
+      400,
+      "Validation failed: 'energy' is required in the telemetry JSON body (meter is the sole source of energy accumulation)"
+    );
   }
+  const parsedE = Number(payload.energy);
+  if (!Number.isFinite(parsedE) || isNaN(parsedE) || parsedE < 0) {
+    throw new IngestionError(400, `Validation failed: 'energy' must be a valid non-negative number, received: ${payload.energy}`);
+  }
+  const energy = Math.round(parsedE * 1000) / 1000;
 
   const now = new Date().toISOString();
 
@@ -735,6 +745,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     voltage,
     current,
     activePower,
+    apparentPower,
     reactivePower,
     powerFactor,
     frequency,
@@ -753,6 +764,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
   meter.current = current;
   meter.activePower = activePower;
   meter.peakActivePower = Math.max(priorPeak, activePower);
+  meter.apparentPower = apparentPower;
   meter.reactivePower = reactivePower;
   meter.powerFactor = powerFactor;
   meter.frequency = frequency;
@@ -789,6 +801,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     voltage,
     current,
     activePower,
+    apparentPower,
     reactivePower,
     powerFactor,
     frequency,
@@ -826,6 +839,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
           voltage,
           current,
           activePower,
+          apparentPower,
           reactivePower,
           energy,
           timestamp: now,

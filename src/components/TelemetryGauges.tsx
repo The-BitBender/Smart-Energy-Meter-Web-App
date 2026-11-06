@@ -18,9 +18,13 @@ interface TelemetryGaugesProps {
 
 export const TelemetryGauges: React.FC<TelemetryGaugesProps> = ({ meter }) => {
   // Calculations
-  const apparentPowerVA = Math.round(meter.voltage * meter.current);
+  const apparentPowerVal =
+    meter.apparentPower !== undefined && Number.isFinite(Number(meter.apparentPower)) && Number(meter.apparentPower) > 0
+      ? Number(meter.apparentPower)
+      : Math.round(Math.abs(meter.voltage * meter.current) * 10) / 10;
+  const apparentPowerVA = Math.round(apparentPowerVal);
+  const apparentPowerKVA = (apparentPowerVal / 1000).toFixed(3);
   const activePowerKW = (meter.activePower / 1000).toFixed(3);
-  const reactivePowerKVAR = (meter.reactivePower / 1000).toFixed(3);
   const costPerHour = ((meter.activePower / 1000) * 0.18).toFixed(3);
   const totalCost = (meter.totalEnergy * 0.18).toFixed(2);
   const co2Kg = (meter.totalEnergy * 0.475).toFixed(1);
@@ -143,7 +147,7 @@ export const TelemetryGauges: React.FC<TelemetryGaugesProps> = ({ meter }) => {
         </div>
       </div>
 
-      {/* 3. Reactive Power & PF (VAR / kVAR) */}
+      {/* 3. Apparent Power & PF (VA / kVA) */}
       <div className="relative overflow-hidden rounded-2xl bg-[#1e373e] border border-white/20 p-5 shadow-lg hover:border-white/40 transition-all text-white">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
@@ -152,9 +156,9 @@ export const TelemetryGauges: React.FC<TelemetryGaugesProps> = ({ meter }) => {
             </div>
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-white/90">
-                Reactive Power &amp; PF
+                Apparent Power &amp; PF
               </span>
-              <div className="text-[11px] text-white/70">Q = V × I × sin(φ)</div>
+              <div className="text-[11px] text-white/70">S = V × I</div>
             </div>
           </div>
           <span className={`text-[11px] font-mono px-2.5 py-0.5 rounded-full border font-bold ${
@@ -170,11 +174,13 @@ export const TelemetryGauges: React.FC<TelemetryGaugesProps> = ({ meter }) => {
           <div>
             <div className="flex items-baseline space-x-1.5">
               <span className="text-3xl sm:text-4xl font-extrabold font-mono tracking-tight text-white drop-shadow-xs">
-                {meter.reactivePower.toFixed(0)}
+                {apparentPowerVal >= 1000 ? apparentPowerKVA : apparentPowerVal.toFixed(1)}
               </span>
-              <span className="text-lg font-bold text-white/75">VAR</span>
+              <span className="text-lg font-bold text-white/75">
+                {apparentPowerVal >= 1000 ? 'kVA' : 'VA'}
+              </span>
             </div>
-            <div className="text-[11px] text-white/70 font-mono mt-0.5">({reactivePowerKVAR} kVAR)</div>
+            <div className="text-[11px] text-white/70 font-mono mt-0.5">({apparentPowerVA} VA)</div>
           </div>
           <div className="text-right">
             <div className="text-xs text-white/75 uppercase font-semibold">Power Factor</div>

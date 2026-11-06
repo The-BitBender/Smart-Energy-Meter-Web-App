@@ -113,7 +113,7 @@ export function isTelemetryLogAnomalous(log: TelemetryLog): boolean {
   if (v >= 242 || (v > 0 && v < 207)) return true;
   if (i > 42 || p > 9500) return true;
   if (i < -0.3 || p < -60) return true;
-  if (f > 0 && (f < 47.5 || f > 52.5)) return true;
+  if (f > 0 && (f < 49.5 || f > 50.5)) return true;
   if (v * i > 800 && p < 40 && i > 3.5) return true;
   return false;
 }
@@ -197,6 +197,10 @@ export function reconcileMeter(existing: Meter | null | undefined, incoming: Met
     voltage: telemetrySource.voltage,
     current: telemetrySource.current,
     activePower: telemetrySource.activePower,
+    apparentPower:
+      telemetrySource.apparentPower !== undefined
+        ? telemetrySource.apparentPower
+        : Math.round(Math.abs(telemetrySource.voltage * telemetrySource.current) * 10) / 10,
     peakActivePower,
     reactivePower: telemetrySource.reactivePower,
     powerFactor: telemetrySource.powerFactor,

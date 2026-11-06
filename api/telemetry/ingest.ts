@@ -7,6 +7,7 @@ export interface TelemetrySample {
   voltage: number;
   current: number;
   activePower: number;
+  apparentPower?: number;
   reactivePower: number;
   powerFactor: number;
   frequency: number;
@@ -67,7 +68,7 @@ export function analyzeAllTelemetryAnomalies(sample: TelemetrySample): AnomalyDe
     }
 
     // 2. Unmetered Bypass / Phase Discrepancy
-    const apparentPower = voltage * current;
+    const apparentPower = sample.apparentPower !== undefined ? sample.apparentPower : Math.abs(voltage * current);
     if (apparentPower > 800 && activePower < 40 && current > 3.5) {
       detected.push({
         hasAnomaly: true,
@@ -155,15 +156,20 @@ export function analyzeAllTelemetryAnomalies(sample: TelemetrySample): AnomalyDe
     });
   }
 
-  // 7. Frequency Deviation
-  if (frequency > 0 && (frequency < 47.5 || frequency > 52.5)) {
-    const isCriticalFreq = frequency <= 45.0 || frequency >= 55.0;
+  // 7. Frequency Deviation (Normal operating range: 49.5 - 50.5 Hz)
+  if (frequency > 0 && (frequency < 49.5 || frequency > 50.5)) {
+    const freqSeverity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' =
+      frequency <= 45.0 || frequency >= 55.0
+        ? 'CRITICAL'
+        : frequency < 47.5 || frequency > 52.5
+        ? 'HIGH'
+        : 'MEDIUM';
     detected.push({
       hasAnomaly: true,
       type: 'FREQUENCY_INSTABILITY',
-      severity: isCriticalFreq ? 'CRITICAL' : 'MEDIUM',
+      severity: freqSeverity,
       title: `Grid Frequency Anomaly (${frequency.toFixed(2)} Hz)`,
-      description: `Frequency shifted to ${frequency.toFixed(2)}Hz (Normal range: 49.5 - 50.5 Hz). Potential local generator oscillation or grid instability.`,
+      description: `Frequency shifted to ${frequency.toFixed(2)}Hz (Normal operating range: 49.5 - 50.5 Hz). Potential local generator oscillation, sensor fault, or grid instability.`,
       recommendation: 'Monitor frequency trend; notify local grid operator if frequency fails to recover.',
     });
   }
@@ -363,6 +369,7 @@ async function fetchMeterFromFirestore(meterId: string): Promise<any | null> {
       current: Number(data.current) || 0.0,
       activePower: Number(data.activePower) || 0.0,
       peakActivePower: Math.max(Number(data.peakActivePower) || 0.0, Number(data.activePower) || 0.0),
+      apparentPower: data.apparentPower !== undefined ? Number(data.apparentPower) : Math.round(Math.abs((Number(data.voltage) || 0) * (Number(data.current) || 0)) * 10) / 10,
       reactivePower: Number(data.reactivePower) || 0.0,
       powerFactor: Number(data.powerFactor) || 0.0,
       frequency: Number(data.frequency) || 0.0,
@@ -813,6 +820,7 @@ export default async function handler(req: any, res: any) {
                 Number(current.activePower) || 0,
                 Number(m.activePower) || 0
               ),
+              apparentPower: telSrc.apparentPower !== undefined ? telSrc.apparentPower : Math.round(Math.abs((Number(telSrc.voltage) || 0) * (Number(telSrc.current) || 0)) * 10) / 10,
               reactivePower: telSrc.reactivePower,
               powerFactor: telSrc.powerFactor,
               frequency: telSrc.frequency,
@@ -867,6 +875,7 @@ export default async function handler(req: any, res: any) {
         current: 0.0,
         activePower: 0.0,
         peakActivePower: 0.0,
+        apparentPower: 0.0,
         reactivePower: 0.0,
         powerFactor: 0.0,
         frequency: 0.0,
@@ -1033,7 +1042,17 @@ export default async function handler(req: any, res: any) {
     }
 
     // Apparent & Reactive power
-    const apparentPower = Math.abs(voltage * current);
+    let apparentPower: number;
+    if (payload.apparentPower !== undefined) {
+      const parsedS = Number(payload.apparentPower);
+      if (!Number.isFinite(parsedS) || isNaN(parsedS) || parsedS < 0) {
+        return sendResponse(res, 400, { success: false, error: `'apparentPower' must be a valid non-negative number, received: ${payload.apparentPower}` });
+      }
+      apparentPower = Math.round(parsedS * 10) / 10;
+    } else {
+      apparentPower = Math.round(Math.abs(voltage * current) * 10) / 10;
+    }
+
     let reactivePower: number;
     if (payload.reactivePower !== undefined) {
       const parsedQ = Number(payload.reactivePower);
@@ -1047,15 +1066,12 @@ export default async function handler(req: any, res: any) {
       reactivePower = 0;
     }
 
-    // Frequency validation
+    // Frequency validation (accept any non-negative finite frequency; out-of-range values trigger FREQUENCY_INSTABILITY anomaly)
     let frequency = existingMeter.frequency || 50.0;
     if (payload.frequency !== undefined) {
       const parsedF = Number(payload.frequency);
-      if (!Number.isFinite(parsedF) || isNaN(parsedF)) {
-        return sendResponse(res, 400, { success: false, error: `'frequency' must be a valid number` });
-      }
-      if (parsedF < 40.0 || parsedF > 75.0) {
-        return sendResponse(res, 400, { success: false, error: `'frequency' (${parsedF}Hz) must be within 40Hz - 75Hz` });
+      if (!Number.isFinite(parsedF) || isNaN(parsedF) || parsedF < 0) {
+        return sendResponse(res, 400, { success: false, error: `'frequency' must be a valid non-negative number` });
       }
       frequency = Math.round(parsedF * 100) / 100;
     }
@@ -1069,17 +1085,18 @@ export default async function handler(req: any, res: any) {
       relayState = payload.relayState;
     }
 
-    // Energy validation
-    let energy = existingMeter.totalEnergy;
-    if (payload.energy !== undefined) {
-      const parsedE = Number(payload.energy);
-      if (!Number.isFinite(parsedE) || isNaN(parsedE) || parsedE < 0) {
-        return sendResponse(res, 400, { success: false, error: `'energy' must be a positive number` });
-      }
-      energy = Math.round(parsedE * 1000) / 1000;
-    } else {
-      energy = Math.round((existingMeter.totalEnergy + 0.005) * 1000) / 1000;
+    // Energy validation (Mandatory: the meter is the sole source of energy accumulation)
+    if (payload.energy === undefined || payload.energy === null || payload.energy === '') {
+      return sendResponse(res, 400, {
+        success: false,
+        error: "Validation failed: 'energy' is required in the telemetry JSON body (meter is the sole source of energy accumulation)",
+      });
     }
+    const parsedE = Number(payload.energy);
+    if (!Number.isFinite(parsedE) || isNaN(parsedE) || parsedE < 0) {
+      return sendResponse(res, 400, { success: false, error: `'energy' must be a valid non-negative number, received: ${payload.energy}` });
+    }
+    const energy = Math.round(parsedE * 1000) / 1000;
 
     const prevSample = {
       voltage: existingMeter.voltage,
@@ -1095,6 +1112,7 @@ export default async function handler(req: any, res: any) {
       voltage,
       current,
       activePower,
+      apparentPower,
       reactivePower,
       powerFactor,
       frequency,
@@ -1111,6 +1129,7 @@ export default async function handler(req: any, res: any) {
     existingMeter.current = current;
     existingMeter.activePower = activePower;
     existingMeter.peakActivePower = Math.max(priorPeak, activePower);
+    existingMeter.apparentPower = apparentPower;
     existingMeter.reactivePower = reactivePower;
     existingMeter.powerFactor = powerFactor;
     existingMeter.frequency = frequency;
@@ -1136,6 +1155,7 @@ export default async function handler(req: any, res: any) {
       voltage,
       current,
       activePower,
+      apparentPower,
       reactivePower,
       powerFactor,
       frequency,
@@ -1170,6 +1190,7 @@ export default async function handler(req: any, res: any) {
             voltage,
             current,
             activePower,
+            apparentPower,
             reactivePower,
             energy,
             timestamp: now,

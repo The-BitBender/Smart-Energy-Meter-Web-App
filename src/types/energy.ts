@@ -38,6 +38,7 @@ export interface Meter {
   voltage: number; // Volts (V)
   current: number; // Amperes (A)
   activePower: number; // Watts (W)
+  apparentPower?: number; // Volt-Amperes (VA)
   peakActivePower?: number; // All-time peak Active Power in Watts (W)
   reactivePower: number; // Volt-Amps Reactive (VAR)
   powerFactor: number; // cos phi (0.0 to 1.0)
@@ -60,6 +61,7 @@ export interface TelemetryLog {
   voltage: number;
   current: number;
   activePower: number;
+  apparentPower?: number;
   reactivePower: number;
   powerFactor: number;
   frequency: number;
@@ -82,6 +84,7 @@ export interface AnomalyAlert {
     voltage: number;
     current: number;
     activePower: number;
+    apparentPower?: number;
     reactivePower: number;
     energy: number;
     timestamp: string;
