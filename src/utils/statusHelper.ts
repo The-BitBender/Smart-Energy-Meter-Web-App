@@ -194,46 +194,69 @@ export function reconcileMeter(existing: Meter | null | undefined, incoming: Met
   const existingCmdTime = new Date(existing.relayCommandUpdatedAt || 0).getTime() || 0;
   const incomingCmdTime = new Date(incoming.relayCommandUpdatedAt || 0).getTime() || 0;
 
-  let resolvedRelayState = telemetrySource.relayState || metaSource.relayState || existing.relayState;
+  const existingPending =
+    existing.pendingRelayCommand === 'ON' || existing.pendingRelayCommand === 'OFF'
+      ? existing.pendingRelayCommand
+      : null;
+  const incomingPending =
+    incoming.pendingRelayCommand === 'ON' || incoming.pendingRelayCommand === 'OFF'
+      ? incoming.pendingRelayCommand
+      : null;
+
+  let resolvedRelayState: 'ON' | 'OFF' = telemetrySource.relayState || metaSource.relayState || existing.relayState;
   let resolvedPendingRelayCommand: 'ON' | 'OFF' | null = null;
   let resolvedRelayCommandUpdatedAt: string | null =
     incomingCmdTime >= existingCmdTime
       ? (incoming.relayCommandUpdatedAt ?? existing.relayCommandUpdatedAt ?? null)
       : (existing.relayCommandUpdatedAt ?? incoming.relayCommandUpdatedAt ?? null);
 
-  if (incomingHb > existingHb && incomingHb >= existingCmdTime) {
-    // A strictly newer telemetry heartbeat arrived after the last command
+  if (incomingCmdTime > existingCmdTime) {
+    // Incoming has a strictly newer command event (new command queued, cancelled, or confirmed on server)
     resolvedRelayState = incoming.relayState || existing.relayState;
-    if (incoming.pendingRelayCommand === 'ON' || incoming.pendingRelayCommand === 'OFF') {
-      resolvedPendingRelayCommand =
-        incoming.pendingRelayCommand !== resolvedRelayState ? incoming.pendingRelayCommand : null;
-    } else if (existing.pendingRelayCommand === 'ON' || existing.pendingRelayCommand === 'OFF') {
-      // Only clear existing pending command if the new heartbeat confirmed the target state
-      resolvedPendingRelayCommand =
-        resolvedRelayState === existing.pendingRelayCommand ? null : existing.pendingRelayCommand;
+    resolvedPendingRelayCommand =
+      incomingPending && incomingPending !== resolvedRelayState ? incomingPending : null;
+    resolvedRelayCommandUpdatedAt = incoming.relayCommandUpdatedAt ?? null;
+  } else if (existingCmdTime > incomingCmdTime) {
+    // Existing has a strictly newer command event
+    if (existingPending) {
+      if (incomingHb > existingCmdTime && incoming.relayState === existingPending) {
+        // Meter confirmed the pending command in a newer telemetry heartbeat
+        resolvedRelayState = existingPending;
+        resolvedPendingRelayCommand = null;
+        resolvedRelayCommandUpdatedAt = incoming.lastHeartbeat || existing.relayCommandUpdatedAt || null;
+      } else {
+        // Keep existing command locked and preserve confirmed physical relayState
+        resolvedRelayState = incomingHb > existingHb ? (incoming.relayState || existing.relayState) : existing.relayState;
+        resolvedPendingRelayCommand = existingPending;
+        resolvedRelayCommandUpdatedAt = existing.relayCommandUpdatedAt ?? null;
+      }
     } else {
+      resolvedRelayState = existing.relayState;
+      resolvedPendingRelayCommand = null;
+      resolvedRelayCommandUpdatedAt = existing.relayCommandUpdatedAt ?? null;
+    }
+  } else {
+    // incomingCmdTime === existingCmdTime
+    const activePending = incomingPending || existingPending;
+    if (activePending) {
+      const latestPhysicalState =
+        incomingHb >= existingHb && incomingHb > 0
+          ? (incoming.relayState || existing.relayState)
+          : existing.relayState;
+      if (incomingHb > existingCmdTime && latestPhysicalState === activePending && !incomingPending) {
+        resolvedRelayState = activePending;
+        resolvedPendingRelayCommand = null;
+      } else if (latestPhysicalState === activePending && (!incomingPending || !existingPending)) {
+        resolvedRelayState = activePending;
+        resolvedPendingRelayCommand = null;
+      } else {
+        resolvedRelayState = latestPhysicalState === activePending ? existing.relayState : latestPhysicalState;
+        resolvedPendingRelayCommand = activePending;
+      }
+    } else {
+      resolvedRelayState = telemetrySource.relayState || metaSource.relayState || existing.relayState;
       resolvedPendingRelayCommand = null;
     }
-  } else if (existingCmdTime > incomingCmdTime) {
-    resolvedRelayState = existing.relayState;
-    resolvedPendingRelayCommand =
-      existing.pendingRelayCommand === 'ON' || existing.pendingRelayCommand === 'OFF'
-        ? existing.pendingRelayCommand
-        : null;
-  } else if (incomingCmdTime > existingCmdTime) {
-    resolvedRelayState = incoming.relayState || existing.relayState;
-    resolvedPendingRelayCommand =
-      incoming.pendingRelayCommand === 'ON' || incoming.pendingRelayCommand === 'OFF'
-        ? incoming.pendingRelayCommand
-        : null;
-  } else {
-    resolvedRelayState = metaSource.relayState || existing.relayState;
-    const candidatePending =
-      incomingUpd >= existingUpd ? incoming.pendingRelayCommand : existing.pendingRelayCommand;
-    resolvedPendingRelayCommand =
-      (candidatePending === 'ON' || candidatePending === 'OFF') && candidatePending !== resolvedRelayState
-        ? candidatePending
-        : null;
   }
 
   return {
