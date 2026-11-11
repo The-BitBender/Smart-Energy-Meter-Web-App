@@ -32,6 +32,8 @@ export interface MeterData {
   ownerUid: string;
   name: string;
   relayState: 'ON' | 'OFF';
+  pendingRelayCommand?: 'ON' | 'OFF' | null;
+  relayCommandUpdatedAt?: string | null;
   status: 'ONLINE' | 'OFFLINE';
   apiKey: string;
   lastHeartbeat: string;
@@ -105,6 +107,11 @@ async function fetchMeterFromFirestore(meterId: string): Promise<MeterData | nul
       ownerUid: data.ownerUid || 'demo_user',
       name: data.name || `Smart Meter ${cleanId}`,
       relayState: data.relayState === 'OFF' ? 'OFF' : 'ON',
+      pendingRelayCommand:
+        data.pendingRelayCommand === 'ON' || data.pendingRelayCommand === 'OFF'
+          ? data.pendingRelayCommand
+          : null,
+      relayCommandUpdatedAt: data.relayCommandUpdatedAt || null,
       status: evaluateOnline(data.lastHeartbeat),
       apiKey: String(data.apiKey),
       lastHeartbeat: data.lastHeartbeat || (null as any),
@@ -259,6 +266,32 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], async (req, res) => {
       });
     }
 
+    // Handle remote relay toggle
+    if (payload.action === 'relay_toggle' || (payload.relayState && payload.voltage === undefined && payload.current === undefined && payload.activePower === undefined)) {
+      if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
+        return res.status(400).json({ success: false, error: "relayState must be 'ON' or 'OFF'" });
+      }
+      const nowCmd = new Date().toISOString();
+      if (meter.relayState === payload.relayState) {
+        meter.pendingRelayCommand = null;
+      } else {
+        meter.pendingRelayCommand = payload.relayState;
+      }
+      meter.relayCommandUpdatedAt = nowCmd;
+      meter.updatedAt = nowCmd;
+      activeMeters.set(meterId, meter);
+      saveMetersToDisk();
+      return res.json({
+        success: true,
+        meterId,
+        relayState: meter.pendingRelayCommand || meter.relayState,
+        confirmedRelayState: meter.relayState,
+        pendingRelayCommand: meter.pendingRelayCommand,
+        relayCommandUpdatedAt: nowCmd,
+        meter,
+      });
+    }
+
     // STRICT AUTHENTICATION: API key MUST match
     const incomingApiKey = ((req.headers['x-api-key'] as string) || payload.apiKey || '').trim();
     if (!incomingApiKey) {
@@ -273,16 +306,6 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], async (req, res) => {
         success: false,
         error: `Authentication failed: Invalid API key for meter '${meterId}'. Verify your key in Dashboard > Settings.`,
       });
-    }
-
-    // Handle remote relay toggle
-    if (payload.action === 'relay_toggle' || (payload.relayState && payload.voltage === undefined && payload.current === undefined)) {
-      if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
-        return res.status(400).json({ success: false, error: "relayState must be 'ON' or 'OFF'" });
-      }
-      meter.relayState = payload.relayState;
-      meter.updatedAt = new Date().toISOString();
-      return res.json({ success: true, meterId, relayState: meter.relayState });
     }
 
     // Metrics validation
@@ -366,12 +389,12 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], async (req, res) => {
       frequency = Math.round(parsedF * 100) / 100;
     }
 
-    let relayState = meter.relayState;
+    let reportedRelayState = meter.relayState;
     if (payload.relayState !== undefined) {
       if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
         return res.status(400).json({ success: false, error: `'relayState' must be 'ON' or 'OFF'` });
       }
-      relayState = payload.relayState;
+      reportedRelayState = payload.relayState;
     }
 
     if (payload.energy === undefined || payload.energy === null || payload.energy === '') {
@@ -392,7 +415,7 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], async (req, res) => {
     let anomalyDesc = 'Operating normally';
     let recommendation = 'Routine periodic monitoring active.';
 
-    if (relayState === 'OFF' && (current > 0.8 || Math.abs(activePower) > 100)) {
+    if (reportedRelayState === 'OFF' && (current > 0.8 || Math.abs(activePower) > 100)) {
       hasAnomaly = true;
       anomalyType = 'UNMETERED_BYPASS';
       anomalySeverity = 'CRITICAL';
@@ -442,6 +465,19 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], async (req, res) => {
       recommendation = 'Monitor frequency trend; notify local grid operator if frequency fails to recover.';
     }
 
+    if (meter.pendingRelayCommand === 'ON' || meter.pendingRelayCommand === 'OFF') {
+      if (payload.relayState === undefined || reportedRelayState === meter.pendingRelayCommand) {
+        meter.relayState = meter.pendingRelayCommand;
+        meter.pendingRelayCommand = null;
+      } else {
+        meter.relayState = reportedRelayState;
+      }
+    } else {
+      meter.relayState = reportedRelayState;
+    }
+
+    const commandedRelayState = meter.pendingRelayCommand || meter.relayState;
+
     meter.voltage = voltage;
     meter.current = current;
     meter.activePower = activePower;
@@ -450,7 +486,6 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], async (req, res) => {
     meter.powerFactor = powerFactor;
     meter.frequency = frequency;
     meter.totalEnergy = energy;
-    meter.relayState = relayState;
     meter.status = 'ONLINE';
     meter.lastHeartbeat = now;
     meter.updatedAt = now;
@@ -474,7 +509,7 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], async (req, res) => {
       powerFactor,
       frequency,
       energy,
-      relayState: meter.relayState,
+      relayState: reportedRelayState,
       hasAnomaly,
       timestamp: now,
     };
@@ -516,20 +551,8 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], async (req, res) => {
     res.json({
       success: true,
       meterId,
-      relayState: meter.relayState,
+      relayState: commandedRelayState,
       anomalyDetected: hasAnomaly,
-      anomaly: {
-        hasAnomaly,
-        type: anomalyType,
-        severity: anomalySeverity,
-        title: hasAnomaly ? anomalyType : 'Optimal Grid Operation',
-        description: anomalyDesc,
-        recommendation,
-      },
-      anomalyAlert,
-      meter,
-      log,
-      telemetryLog: log,
       timestamp: now,
     });
   } catch (err: any) {
@@ -609,7 +632,7 @@ app.get(['/api/telemetry/energy', '/telemetry/energy', '/api/meters/:meterId/ene
     meterId: meter.meterId,
     energy: energyKwh,
     energyWh,
-    relayState: meter.relayState || 'ON',
+    relayState: meter.pendingRelayCommand || meter.relayState || 'ON',
     timestamp: meter.lastHeartbeat || meter.updatedAt || new Date().toISOString(),
   });
 });
@@ -621,7 +644,9 @@ app.get(['/api/meters/:meterId/relay-status', '/meters/:meterId/relay-status'], 
   const status = meter ? evaluateOnline(meter.lastHeartbeat) : 'UNKNOWN';
   res.json({
     meterId: req.params.meterId,
-    relayState: meter ? meter.relayState : 'ON',
+    relayState: meter ? (meter.pendingRelayCommand || meter.relayState) : 'ON',
+    confirmedRelayState: meter ? meter.relayState : 'ON',
+    pendingRelayCommand: meter ? (meter.pendingRelayCommand ?? null) : null,
     status,
   });
 });
@@ -634,10 +659,25 @@ app.post(['/api/meters/:meterId/relay', '/meters/:meterId/relay'], (req, res) =>
   if (req.body.relayState !== 'ON' && req.body.relayState !== 'OFF') {
     return res.status(400).json({ error: 'relayState must be ON or OFF' });
   }
-  meter.relayState = req.body.relayState;
-  meter.updatedAt = new Date().toISOString();
+  const now = new Date().toISOString();
+  if (meter.relayState === req.body.relayState) {
+    meter.pendingRelayCommand = null;
+  } else {
+    meter.pendingRelayCommand = req.body.relayState;
+  }
+  meter.relayCommandUpdatedAt = now;
+  meter.updatedAt = now;
   activeMeters.set(req.params.meterId, meter);
-  res.json({ success: true, meterId: meter.meterId, relayState: meter.relayState });
+  saveMetersToDisk();
+  res.json({
+    success: true,
+    meterId: meter.meterId,
+    relayState: meter.pendingRelayCommand || meter.relayState,
+    confirmedRelayState: meter.relayState,
+    pendingRelayCommand: meter.pendingRelayCommand,
+    relayCommandUpdatedAt: now,
+    meter,
+  });
 });
 
 // 5. Meters listing & creation
@@ -682,6 +722,8 @@ app.post(['/api/meters', '/meters'], (req, res) => {
       ownerUid: body.ownerUid || 'demo_user',
       name: body.name || `Smart Meter ${meterId}`,
       relayState: 'ON',
+      pendingRelayCommand: null,
+      relayCommandUpdatedAt: null,
       status: 'OFFLINE',
       apiKey: assignedApiKey,
       lastHeartbeat: null as any,

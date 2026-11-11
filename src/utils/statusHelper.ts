@@ -191,6 +191,51 @@ export function reconcileMeter(existing: Meter | null | undefined, incoming: Met
     Number(incoming.activePower) || 0
   );
 
+  const existingCmdTime = new Date(existing.relayCommandUpdatedAt || 0).getTime() || 0;
+  const incomingCmdTime = new Date(incoming.relayCommandUpdatedAt || 0).getTime() || 0;
+
+  let resolvedRelayState = telemetrySource.relayState || metaSource.relayState || existing.relayState;
+  let resolvedPendingRelayCommand: 'ON' | 'OFF' | null = null;
+  let resolvedRelayCommandUpdatedAt: string | null =
+    incomingCmdTime >= existingCmdTime
+      ? (incoming.relayCommandUpdatedAt ?? existing.relayCommandUpdatedAt ?? null)
+      : (existing.relayCommandUpdatedAt ?? incoming.relayCommandUpdatedAt ?? null);
+
+  if (incomingHb > existingHb && incomingHb >= existingCmdTime) {
+    // A strictly newer telemetry heartbeat arrived after the last command
+    resolvedRelayState = incoming.relayState || existing.relayState;
+    if (incoming.pendingRelayCommand === 'ON' || incoming.pendingRelayCommand === 'OFF') {
+      resolvedPendingRelayCommand =
+        incoming.pendingRelayCommand !== resolvedRelayState ? incoming.pendingRelayCommand : null;
+    } else if (existing.pendingRelayCommand === 'ON' || existing.pendingRelayCommand === 'OFF') {
+      // Only clear existing pending command if the new heartbeat confirmed the target state
+      resolvedPendingRelayCommand =
+        resolvedRelayState === existing.pendingRelayCommand ? null : existing.pendingRelayCommand;
+    } else {
+      resolvedPendingRelayCommand = null;
+    }
+  } else if (existingCmdTime > incomingCmdTime) {
+    resolvedRelayState = existing.relayState;
+    resolvedPendingRelayCommand =
+      existing.pendingRelayCommand === 'ON' || existing.pendingRelayCommand === 'OFF'
+        ? existing.pendingRelayCommand
+        : null;
+  } else if (incomingCmdTime > existingCmdTime) {
+    resolvedRelayState = incoming.relayState || existing.relayState;
+    resolvedPendingRelayCommand =
+      incoming.pendingRelayCommand === 'ON' || incoming.pendingRelayCommand === 'OFF'
+        ? incoming.pendingRelayCommand
+        : null;
+  } else {
+    resolvedRelayState = metaSource.relayState || existing.relayState;
+    const candidatePending =
+      incomingUpd >= existingUpd ? incoming.pendingRelayCommand : existing.pendingRelayCommand;
+    resolvedPendingRelayCommand =
+      (candidatePending === 'ON' || candidatePending === 'OFF') && candidatePending !== resolvedRelayState
+        ? candidatePending
+        : null;
+  }
+
   return {
     ...existing,
     ...metaSource,
@@ -211,7 +256,9 @@ export function reconcileMeter(existing: Meter | null | undefined, incoming: Met
     anomalyType,
     anomalySeverity,
     anomalyDescription,
-    relayState: metaSource.relayState || existing.relayState,
+    relayState: resolvedRelayState,
+    pendingRelayCommand: resolvedPendingRelayCommand,
+    relayCommandUpdatedAt: resolvedRelayCommandUpdatedAt,
     updatedAt: incomingUpd >= existingUpd ? incoming.updatedAt : existing.updatedAt,
     status,
     apiKey: incoming.apiKey || existing.apiKey,

@@ -28,6 +28,8 @@ export interface Meter {
   ownerUid: string;
   name: string;
   relayState: RelayState;
+  pendingRelayCommand?: RelayState | null;
+  relayCommandUpdatedAt?: string | null;
   status: MeterStatus;
   apiKey: string;
   lastHeartbeat: string;

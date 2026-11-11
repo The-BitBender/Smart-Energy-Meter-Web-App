@@ -380,6 +380,7 @@ export default function App() {
               next.updatedAt === prev.updatedAt &&
               next.hasAnomaly === prev.hasAnomaly &&
               next.relayState === prev.relayState &&
+              next.pendingRelayCommand === prev.pendingRelayCommand &&
               next.voltage === prev.voltage &&
               next.current === prev.current &&
               next.activePower === prev.activePower &&
@@ -400,8 +401,9 @@ export default function App() {
           if (user && !deletedMeterIdsRef.current.has(meterId)) {
             try {
               const incomingHb = latestMeterData.lastHeartbeat || latestMeterData.updatedAt || '';
-              if (incomingHb && lastSyncedHeartbeatRef.current.get(meterId) !== incomingHb) {
-                lastSyncedHeartbeatRef.current.set(meterId, incomingHb);
+              const syncKey = `${incomingHb}|${latestMeterData.relayState}|${latestMeterData.pendingRelayCommand || 'NONE'}`;
+              if (incomingHb && lastSyncedHeartbeatRef.current.get(meterId) !== syncKey) {
+                lastSyncedHeartbeatRef.current.set(meterId, syncKey);
                 await updateDoc(doc(db, 'meters', meterId), {
                   voltage: latestMeterData.voltage,
                   current: latestMeterData.current,
@@ -413,6 +415,8 @@ export default function App() {
                   frequency: latestMeterData.frequency,
                   totalEnergy: latestMeterData.totalEnergy,
                   relayState: latestMeterData.relayState,
+                  pendingRelayCommand: latestMeterData.pendingRelayCommand ?? null,
+                  relayCommandUpdatedAt: latestMeterData.relayCommandUpdatedAt ?? null,
                   status: latestMeterData.status,
                   lastHeartbeat: latestMeterData.lastHeartbeat,
                   hasAnomaly: latestMeterData.hasAnomaly,
@@ -511,27 +515,61 @@ export default function App() {
   const heartbeatAgeSec = lastSeenInfo.ageSec;
   const isOnline = lastSeenInfo.isOnline;
 
-  // Toggle Relay Output (ON / OFF)
+  // Toggle Relay Output (ON / OFF) — Locks pendingRelayCommand until the meter confirms via telemetry POST
   const handleToggleRelay = async (newState: 'ON' | 'OFF') => {
     if (!activeMeter) return;
     setIsRelayLoading(true);
+    const now = new Date().toISOString();
+    const targetMeterId = activeMeter.meterId;
+    const nextPending: 'ON' | 'OFF' | null = activeMeter.relayState === newState ? null : newState;
 
     try {
-      // 1. Send command to backend (both telemetry ingest point and meters API)
+      // 1. Optimistically set pendingRelayCommand on local state so UI shows PENDING OFF / PENDING ON immediately
+      setActiveMeter(prev =>
+        prev && prev.meterId === targetMeterId
+          ? {
+              ...prev,
+              pendingRelayCommand: nextPending,
+              relayCommandUpdatedAt: now,
+              updatedAt: now,
+            }
+          : prev
+      );
+      setMeters(prev =>
+        prev.map(m =>
+          m.meterId === targetMeterId
+            ? {
+                ...m,
+                pendingRelayCommand: nextPending,
+                relayCommandUpdatedAt: now,
+                updatedAt: now,
+              }
+            : m
+        )
+      );
+
+      // 2. Send command to backend (both telemetry ingest point and meters API)
       try {
         await Promise.allSettled([
           fetch('/api/telemetry/ingest', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Key': activeMeter.apiKey,
+            },
             body: JSON.stringify({
-              meterId: activeMeter.meterId,
+              meterId: targetMeterId,
+              apiKey: activeMeter.apiKey,
               action: 'relay_toggle',
               relayState: newState,
             }),
           }),
-          fetch(`/api/meters/${encodeURIComponent(activeMeter.meterId)}/relay`, {
+          fetch(`/api/meters/${encodeURIComponent(targetMeterId)}/relay`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Key': activeMeter.apiKey,
+            },
             body: JSON.stringify({ relayState: newState }),
           }),
         ]);
@@ -539,16 +577,13 @@ export default function App() {
         console.warn('Backend relay API notice:', err);
       }
 
-      // 2. Update local state
-      setActiveMeter(prev => prev ? { ...prev, relayState: newState } : null);
-      setMeters(prev => prev.map(m => m.meterId === activeMeter.meterId ? { ...m, relayState: newState } : m));
-
       // 3. Update Firestore if user is authenticated
       if (user) {
         try {
-          await updateDoc(doc(db, 'meters', activeMeter.meterId), {
-            relayState: newState,
-            updatedAt: new Date().toISOString(),
+          await updateDoc(doc(db, 'meters', targetMeterId), {
+            pendingRelayCommand: nextPending,
+            relayCommandUpdatedAt: now,
+            updatedAt: now,
           });
         } catch (e) {
           console.warn('Firestore updateDoc notice:', e);
@@ -556,7 +591,6 @@ export default function App() {
       }
     } catch (err: any) {
       console.error('Error toggling relay:', err);
-      alert(`Failed to send relay command: ${err.message}`);
     } finally {
       setIsRelayLoading(false);
     }
@@ -680,6 +714,8 @@ export default function App() {
         ownerUid,
         name: meterData.name || `Smart Meter ${assignedMeterId}`,
         relayState: 'ON',
+        pendingRelayCommand: null,
+        relayCommandUpdatedAt: null,
         status: 'OFFLINE',
         apiKey: assignedApiKey,
         lastHeartbeat: null as any,

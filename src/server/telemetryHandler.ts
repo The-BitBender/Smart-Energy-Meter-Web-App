@@ -85,6 +85,11 @@ export async function fetchMeterFromFirestore(meterId: string): Promise<Meter | 
       ownerUid: data.ownerUid || 'demo_user',
       name: data.name || `Smart Meter ${cleanId}`,
       relayState: data.relayState === 'OFF' ? 'OFF' : 'ON',
+      pendingRelayCommand:
+        data.pendingRelayCommand === 'ON' || data.pendingRelayCommand === 'OFF'
+          ? data.pendingRelayCommand
+          : null,
+      relayCommandUpdatedAt: data.relayCommandUpdatedAt || null,
       status: evaluateOnlineStatus(data.lastHeartbeat),
       apiKey: String(data.apiKey),
       lastHeartbeat: data.lastHeartbeat || (null as any),
@@ -295,6 +300,46 @@ export function syncMeters(meters: Meter[], _replaceAll = false, deletedIds?: st
           anomalyDescription = m.anomalyDescription;
         }
 
+        const existingCmdTime = new Date(existing.relayCommandUpdatedAt || 0).getTime() || 0;
+        const incomingCmdTime = new Date(m.relayCommandUpdatedAt || 0).getTime() || 0;
+
+        let resolvedRelayState = telSrc.relayState || metaSrc.relayState || existing.relayState;
+        let resolvedPendingRelayCommand: 'ON' | 'OFF' | null = null;
+        const resolvedRelayCommandUpdatedAt =
+          incomingCmdTime >= existingCmdTime
+            ? (m.relayCommandUpdatedAt ?? existing.relayCommandUpdatedAt ?? null)
+            : (existing.relayCommandUpdatedAt ?? m.relayCommandUpdatedAt ?? null);
+
+        if (existingHb > incomingHb && existingHb >= incomingCmdTime) {
+          resolvedRelayState = existing.relayState;
+          resolvedPendingRelayCommand =
+            existing.pendingRelayCommand === 'ON' || existing.pendingRelayCommand === 'OFF'
+              ? existing.pendingRelayCommand
+              : null;
+        } else if (incomingHb > existingHb && incomingHb >= existingCmdTime) {
+          resolvedRelayState = m.relayState || existing.relayState;
+          if (m.pendingRelayCommand === 'ON' || m.pendingRelayCommand === 'OFF') {
+            resolvedPendingRelayCommand = m.pendingRelayCommand !== resolvedRelayState ? m.pendingRelayCommand : null;
+          } else if (existing.pendingRelayCommand === 'ON' || existing.pendingRelayCommand === 'OFF') {
+            resolvedPendingRelayCommand =
+              resolvedRelayState === existing.pendingRelayCommand ? null : existing.pendingRelayCommand;
+          }
+        } else if (incomingCmdTime >= existingCmdTime) {
+          resolvedRelayState = m.relayState || existing.relayState;
+          resolvedPendingRelayCommand =
+            (m.pendingRelayCommand === 'ON' || m.pendingRelayCommand === 'OFF') &&
+            m.pendingRelayCommand !== resolvedRelayState
+              ? m.pendingRelayCommand
+              : null;
+        } else {
+          resolvedRelayState = existing.relayState;
+          resolvedPendingRelayCommand =
+            (existing.pendingRelayCommand === 'ON' || existing.pendingRelayCommand === 'OFF') &&
+            existing.pendingRelayCommand !== resolvedRelayState
+              ? existing.pendingRelayCommand
+              : null;
+        }
+
         const bestHeartbeat = telSrc.lastHeartbeat || existing.lastHeartbeat || m.lastHeartbeat;
         activeMeters.set(m.meterId, {
           ...existing,
@@ -319,6 +364,9 @@ export function syncMeters(meters: Meter[], _replaceAll = false, deletedIds?: st
           anomalyType,
           anomalySeverity,
           anomalyDescription,
+          relayState: resolvedRelayState,
+          pendingRelayCommand: resolvedPendingRelayCommand,
+          relayCommandUpdatedAt: resolvedRelayCommandUpdatedAt,
           status: evaluateOnlineStatus(bestHeartbeat),
           apiKey: existing.apiKey || m.apiKey,
         });
@@ -576,7 +624,35 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     );
   }
 
-  // 2. Strict API Key Authentication
+  // Handle pure relay command from Web Dashboard (locks pendingRelayCommand until meter confirms)
+  if (payload.action === 'relay_toggle' && payload.relayState) {
+    if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
+      throw new IngestionError(400, "Validation failed: 'relayState' must be 'ON' or 'OFF'");
+    }
+    const nowCmd = new Date().toISOString();
+    if (meter.relayState === payload.relayState) {
+      meter.pendingRelayCommand = null;
+    } else {
+      meter.pendingRelayCommand = payload.relayState;
+    }
+    meter.relayCommandUpdatedAt = nowCmd;
+    meter.updatedAt = nowCmd;
+    activeMeters.set(meterId, meter);
+    saveMetersToDisk();
+    persistMeterToFirestore(meter).catch(() => {});
+    return {
+      success: true,
+      meterId,
+      relayState: meter.pendingRelayCommand || meter.relayState,
+      confirmedRelayState: meter.relayState,
+      pendingRelayCommand: meter.pendingRelayCommand,
+      relayCommandUpdatedAt: meter.relayCommandUpdatedAt,
+      status: meter.status,
+      meter,
+    };
+  }
+
+  // 2. Strict API Key Authentication for Hardware Telemetry Ingestion
   const incomingApiKey = (headerApiKey || payload.apiKey || '').toString().trim();
   if (!incomingApiKey) {
     throw new IngestionError(
@@ -590,24 +666,6 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
       401,
       `Authentication failed: Invalid API key for meter '${meterId}'. Verify your key in Dashboard > Settings.`
     );
-  }
-
-  // Handle pure relay command or heartbeat
-  if (payload.action === 'relay_toggle' && payload.relayState) {
-    if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
-      throw new IngestionError(400, "Validation failed: 'relayState' must be 'ON' or 'OFF'");
-    }
-    meter.relayState = payload.relayState;
-    meter.updatedAt = new Date().toISOString();
-    activeMeters.set(meterId, meter);
-    saveMetersToDisk();
-    persistMeterToFirestore(meter).catch(() => {});
-    return {
-      success: true,
-      meterId,
-      relayState: meter.relayState,
-      status: meter.status,
-    };
   }
 
   // 3. Strict Payload Validation for Telemetry Metrics
@@ -707,13 +765,13 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     frequency = Math.round(parsedF * 100) / 100;
   }
 
-  // Relay State validation
-  let relayState = meter.relayState;
+  // Relay State validation & Pending Command Lock reconciliation
+  let reportedRelayState = meter.relayState;
   if (payload.relayState !== undefined) {
     if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
       throw new IngestionError(400, `Validation failed: 'relayState' must be 'ON' or 'OFF', received: ${payload.relayState}`);
     }
-    relayState = payload.relayState;
+    reportedRelayState = payload.relayState;
   }
 
   // Energy validation (Mandatory: the meter is the sole source of energy accumulation)
@@ -741,6 +799,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
 
   const priorPeak = Math.max(Number(meter.peakActivePower) || 0, Number(meter.activePower) || 0);
 
+  // Evaluate anomalies against the physical relay state reported by the meter in this sample
   const sample: TelemetrySample = {
     voltage,
     current,
@@ -750,7 +809,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     powerFactor,
     frequency,
     energy,
-    relayState,
+    relayState: reportedRelayState,
     peakActivePower: priorPeak,
     previousSample: prevSample,
   };
@@ -758,6 +817,22 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
   // Run Anomaly and Theft Detection Algorithm (both individual list and combined summary)
   const allAnomalies = analyzeAllTelemetryAnomalies(sample);
   const anomalyResult = analyzeTelemetryForAnomalies(sample);
+
+  // Reconcile Pending Relay Command Lock:
+  // If a pending command is locked, only clear it when the meter's reportedRelayState matches the target command!
+  if (meter.pendingRelayCommand === 'ON' || meter.pendingRelayCommand === 'OFF') {
+    if (payload.relayState === undefined || reportedRelayState === meter.pendingRelayCommand) {
+      meter.relayState = meter.pendingRelayCommand;
+      meter.pendingRelayCommand = null;
+    } else {
+      // Meter is still reporting its prior physical state; keep pendingRelayCommand locked so the HTTP response commands the switch
+      meter.relayState = reportedRelayState;
+    }
+  } else {
+    meter.relayState = reportedRelayState;
+  }
+
+  const commandedRelayState = meter.pendingRelayCommand || meter.relayState;
 
   // Update Existing Meter (and update all-time peak active power if current activePower is higher)
   meter.voltage = voltage;
@@ -769,7 +844,6 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
   meter.powerFactor = powerFactor;
   meter.frequency = frequency;
   meter.totalEnergy = energy;
-  meter.relayState = relayState;
   meter.status = 'ONLINE';
   meter.lastHeartbeat = now;
   meter.updatedAt = now;
@@ -806,7 +880,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     powerFactor,
     frequency,
     energy,
-    relayState: meter.relayState,
+    relayState: reportedRelayState,
     hasAnomaly: anomalyResult.hasAnomaly,
     timestamp: now,
   };
@@ -868,7 +942,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
   const compactResponse: Record<string, any> = {
     success: true,
     meterId,
-    relayState: meter.relayState,
+    relayState: commandedRelayState,
     anomalyDetected: anomalyResult.hasAnomaly,
   };
 

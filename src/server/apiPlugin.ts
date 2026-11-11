@@ -137,6 +137,8 @@ export function apiMiddlewarePlugin(): Plugin {
                 ownerUid: body.ownerUid || 'demo_user',
                 name: body.name?.trim() || `Smart Meter ${meterId}`,
                 relayState: 'ON',
+                pendingRelayCommand: null,
+                relayCommandUpdatedAt: null,
                 status: 'OFFLINE',
                 apiKey: assignedApiKey,
                 lastHeartbeat: null as any,
@@ -231,7 +233,9 @@ export function apiMiddlewarePlugin(): Plugin {
             const status = meter ? evaluateOnlineStatus(meter.lastHeartbeat) : 'UNKNOWN';
             return sendJson(res, 200, {
               meterId,
-              relayState: meter ? meter.relayState : 'ON',
+              relayState: meter ? (meter.pendingRelayCommand || meter.relayState) : 'ON',
+              confirmedRelayState: meter ? meter.relayState : 'ON',
+              pendingRelayCommand: meter ? (meter.pendingRelayCommand ?? null) : null,
               status,
             });
           }
@@ -248,12 +252,26 @@ export function apiMiddlewarePlugin(): Plugin {
             if (body.relayState !== 'ON' && body.relayState !== 'OFF') {
               return sendJson(res, 400, { success: false, error: "relayState must be 'ON' or 'OFF'" });
             }
-            meter.relayState = body.relayState;
-            meter.updatedAt = new Date().toISOString();
+            const now = new Date().toISOString();
+            if (meter.relayState === body.relayState) {
+              meter.pendingRelayCommand = null;
+            } else {
+              meter.pendingRelayCommand = body.relayState;
+            }
+            meter.relayCommandUpdatedAt = now;
+            meter.updatedAt = now;
             activeMeters.set(meterId, meter);
             saveMetersToDisk();
             persistMeterToFirestore(meter).catch(() => {});
-            return sendJson(res, 200, { success: true, meterId, relayState: meter.relayState });
+            return sendJson(res, 200, {
+              success: true,
+              meterId,
+              relayState: meter.pendingRelayCommand || meter.relayState,
+              confirmedRelayState: meter.relayState,
+              pendingRelayCommand: meter.pendingRelayCommand,
+              relayCommandUpdatedAt: now,
+              meter,
+            });
           }
 
           // 5. Rotate/Change Meter API Key (POST /api/meters/:id/rotate-key)
@@ -361,6 +379,8 @@ export function apiMiddlewarePlugin(): Plugin {
               ownerUid: body.ownerUid || 'demo_user',
               name: body.name?.trim() || `Smart Meter ${meterId}`,
               relayState: 'ON',
+              pendingRelayCommand: null,
+              relayCommandUpdatedAt: null,
               status: 'OFFLINE',
               apiKey: assignedApiKey,
               lastHeartbeat: null as any,

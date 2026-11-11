@@ -137,13 +137,19 @@ export const TelemetryGauges: React.FC<TelemetryGaugesProps> = ({ meter }) => {
 
         <div className="mt-4 pt-2.5 border-t border-white/15 flex items-center justify-between text-xs text-white/90">
           <span className="font-medium text-white/75">Relay Contact:</span>
-          <span className={`font-mono font-bold px-2.5 py-0.5 rounded text-[11px] ${
-            meter.relayState === 'ON' 
-              ? 'bg-emerald-400 text-[#112327] font-black' 
-              : 'bg-rose-500 text-white font-black'
-          }`}>
-            {meter.relayState === 'ON' ? 'ENERGIZED (ON)' : 'DISCONNECTED (OFF)'}
-          </span>
+          {meter.pendingRelayCommand && meter.pendingRelayCommand !== meter.relayState ? (
+            <span className="font-mono font-black px-2.5 py-0.5 rounded text-[11px] bg-amber-400 text-[#112327]">
+              PENDING {meter.pendingRelayCommand} (QUEUED)
+            </span>
+          ) : (
+            <span className={`font-mono font-bold px-2.5 py-0.5 rounded text-[11px] ${
+              meter.relayState === 'ON' 
+                ? 'bg-emerald-400 text-[#112327] font-black' 
+                : 'bg-rose-500 text-white font-black'
+            }`}>
+              {meter.relayState === 'ON' ? 'ENERGIZED (ON)' : 'DISCONNECTED (OFF)'}
+            </span>
+          )}
         </div>
       </div>
 

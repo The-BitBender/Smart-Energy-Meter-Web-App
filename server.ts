@@ -118,6 +118,8 @@ app.post('/api/telemetry/ingest', async (req, res) => {
         ownerUid: payload.ownerUid || 'demo_user',
         name: payload.name?.trim() || `Smart Meter ${meterId}`,
         relayState: 'ON',
+        pendingRelayCommand: null,
+        relayCommandUpdatedAt: null,
         status: 'OFFLINE',
         apiKey: assignedApiKey,
         lastHeartbeat: null as any,
@@ -238,7 +240,7 @@ const handleGetLastEnergy = async (req: express.Request, res: express.Response) 
     meterId: meter.meterId,
     energy: energyKwh,
     energyWh,
-    relayState: meter.relayState || 'ON',
+    relayState: meter.pendingRelayCommand || meter.relayState || 'ON',
     timestamp: meter.lastHeartbeat || meter.updatedAt || new Date().toISOString(),
   });
 };
@@ -269,24 +271,40 @@ app.get('/api/meters/:meterId/relay-status', async (req, res) => {
   const status = meter ? evaluateOnlineStatus(meter.lastHeartbeat) : 'UNKNOWN';
   res.json({
     meterId: req.params.meterId,
-    relayState: meter ? meter.relayState : 'ON',
+    relayState: meter ? (meter.pendingRelayCommand || meter.relayState) : 'ON',
+    confirmedRelayState: meter ? meter.relayState : 'ON',
+    pendingRelayCommand: meter ? (meter.pendingRelayCommand ?? null) : null,
     status,
   });
 });
 
-// Remote relay toggle
+// Remote relay toggle (locks pendingRelayCommand until meter confirms via telemetry POST)
 app.post('/api/meters/:meterId/relay', async (req, res) => {
   const meter = await ensureMeterLoaded(req.params.meterId);
   if (!meter) return res.status(404).json({ success: false, error: 'Meter not found' });
   if (req.body.relayState !== 'ON' && req.body.relayState !== 'OFF') {
     return res.status(400).json({ success: false, error: 'relayState must be ON or OFF' });
   }
-  meter.relayState = req.body.relayState;
-  meter.updatedAt = new Date().toISOString();
+  const now = new Date().toISOString();
+  if (meter.relayState === req.body.relayState) {
+    meter.pendingRelayCommand = null;
+  } else {
+    meter.pendingRelayCommand = req.body.relayState;
+  }
+  meter.relayCommandUpdatedAt = now;
+  meter.updatedAt = now;
   activeMeters.set(req.params.meterId, meter);
   saveMetersToDisk();
   persistMeterToFirestore(meter).catch(() => {});
-  res.json({ success: true, meterId: meter.meterId, relayState: meter.relayState });
+  res.json({
+    success: true,
+    meterId: meter.meterId,
+    relayState: meter.pendingRelayCommand || meter.relayState,
+    confirmedRelayState: meter.relayState,
+    pendingRelayCommand: meter.pendingRelayCommand,
+    relayCommandUpdatedAt: now,
+    meter,
+  });
 });
 
 // Rotate or set API key for a meter - strictly auto-generated with fixed length (16 chars)
@@ -371,6 +389,8 @@ app.post('/api/meters', async (req, res) => {
       ownerUid: body.ownerUid || 'demo_user',
       name: body.name?.trim() || `Smart Meter ${meterId}`,
       relayState: 'ON' as const,
+      pendingRelayCommand: null,
+      relayCommandUpdatedAt: null,
       status: 'OFFLINE' as const,
       apiKey: assignedApiKey,
       lastHeartbeat: null as any,

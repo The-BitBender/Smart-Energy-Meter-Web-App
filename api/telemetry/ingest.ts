@@ -359,6 +359,11 @@ async function fetchMeterFromFirestore(meterId: string): Promise<any | null> {
       ownerUid: data.ownerUid || 'demo_user',
       name: data.name || `Smart Meter ${cleanId}`,
       relayState: data.relayState === 'OFF' ? 'OFF' : 'ON',
+      pendingRelayCommand:
+        data.pendingRelayCommand === 'ON' || data.pendingRelayCommand === 'OFF'
+          ? data.pendingRelayCommand
+          : null,
+      relayCommandUpdatedAt: data.relayCommandUpdatedAt || null,
       status: getOnlineStatus(data.lastHeartbeat),
       apiKey: String(data.apiKey),
       lastHeartbeat: data.lastHeartbeat || null,
@@ -664,7 +669,7 @@ export default async function handler(req: any, res: any) {
           meterId: meter.meterId,
           energy: energyKwh,
           energyWh,
-          relayState: meter.relayState || 'ON',
+          relayState: meter.pendingRelayCommand || meter.relayState || 'ON',
           timestamp: meter.lastHeartbeat || meter.updatedAt || new Date().toISOString(),
         });
       }
@@ -674,7 +679,9 @@ export default async function handler(req: any, res: any) {
         const meter = await ensureMeterLoaded(queryMeterId);
         return sendResponse(res, 200, {
           meterId: queryMeterId,
-          relayState: meter ? meter.relayState : 'ON',
+          relayState: meter ? (meter.pendingRelayCommand || meter.relayState) : 'ON',
+          confirmedRelayState: meter ? meter.relayState : 'ON',
+          pendingRelayCommand: meter ? (meter.pendingRelayCommand ?? null) : null,
           status: meter ? getOnlineStatus(meter.lastHeartbeat) : 'OFFLINE',
         });
       }
@@ -807,6 +814,46 @@ export default async function handler(req: any, res: any) {
               anomalyDescription = m.anomalyDescription;
             }
 
+            const currentCmdTime = new Date(current.relayCommandUpdatedAt || 0).getTime() || 0;
+            const incomingCmdTime = new Date(m.relayCommandUpdatedAt || 0).getTime() || 0;
+
+            let resolvedRelayState = telSrc.relayState || metaSrc.relayState || current.relayState;
+            let resolvedPendingRelayCommand: 'ON' | 'OFF' | null = null;
+            const resolvedRelayCommandUpdatedAt =
+              incomingCmdTime >= currentCmdTime
+                ? (m.relayCommandUpdatedAt ?? current.relayCommandUpdatedAt ?? null)
+                : (current.relayCommandUpdatedAt ?? m.relayCommandUpdatedAt ?? null);
+
+            if (currentHb > incomingHb && currentHb >= incomingCmdTime) {
+              resolvedRelayState = current.relayState;
+              resolvedPendingRelayCommand =
+                current.pendingRelayCommand === 'ON' || current.pendingRelayCommand === 'OFF'
+                  ? current.pendingRelayCommand
+                  : null;
+            } else if (incomingHb > currentHb && incomingHb >= currentCmdTime) {
+              resolvedRelayState = m.relayState || current.relayState;
+              if (m.pendingRelayCommand === 'ON' || m.pendingRelayCommand === 'OFF') {
+                resolvedPendingRelayCommand = m.pendingRelayCommand !== resolvedRelayState ? m.pendingRelayCommand : null;
+              } else if (current.pendingRelayCommand === 'ON' || current.pendingRelayCommand === 'OFF') {
+                resolvedPendingRelayCommand =
+                  resolvedRelayState === current.pendingRelayCommand ? null : current.pendingRelayCommand;
+              }
+            } else if (incomingCmdTime >= currentCmdTime) {
+              resolvedRelayState = m.relayState || current.relayState;
+              resolvedPendingRelayCommand =
+                (m.pendingRelayCommand === 'ON' || m.pendingRelayCommand === 'OFF') &&
+                m.pendingRelayCommand !== resolvedRelayState
+                  ? m.pendingRelayCommand
+                  : null;
+            } else {
+              resolvedRelayState = current.relayState;
+              resolvedPendingRelayCommand =
+                (current.pendingRelayCommand === 'ON' || current.pendingRelayCommand === 'OFF') &&
+                current.pendingRelayCommand !== resolvedRelayState
+                  ? current.pendingRelayCommand
+                  : null;
+            }
+
             globalMeters.set(m.meterId, {
               ...current,
               ...metaSrc,
@@ -830,6 +877,9 @@ export default async function handler(req: any, res: any) {
               anomalyType,
               anomalySeverity,
               anomalyDescription,
+              relayState: resolvedRelayState,
+              pendingRelayCommand: resolvedPendingRelayCommand,
+              relayCommandUpdatedAt: resolvedRelayCommandUpdatedAt,
               apiKey: current.apiKey || m.apiKey,
             });
           }
@@ -865,6 +915,8 @@ export default async function handler(req: any, res: any) {
         ownerUid: payload.ownerUid || 'demo_user',
         name: payload.name || `Smart Meter ${meterId}`,
         relayState: 'ON',
+        pendingRelayCommand: null,
+        relayCommandUpdatedAt: null,
         status: 'OFFLINE',
         apiKey: assignedApiKey,
         lastHeartbeat: null,
@@ -946,7 +998,35 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // STRICT AUTHENTICATION: API Key MUST be provided and MUST match
+    // Check if this is a remote relay toggle command from the Web Dashboard
+    if (payload.action === 'relay_toggle' || (payload.relayState && payload.voltage === undefined && payload.current === undefined && payload.activePower === undefined)) {
+      if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
+        return sendResponse(res, 400, { success: false, error: "relayState must be 'ON' or 'OFF'" });
+      }
+      if (existingMeter.relayState === payload.relayState) {
+        existingMeter.pendingRelayCommand = null;
+      } else {
+        existingMeter.pendingRelayCommand = payload.relayState;
+      }
+      existingMeter.relayCommandUpdatedAt = now;
+      existingMeter.updatedAt = now;
+      globalMeters.set(meterId, existingMeter);
+      saveMetersToDisk();
+      await persistMeterToFirestore(existingMeter);
+
+      return sendResponse(res, 200, {
+        success: true,
+        meterId,
+        relayState: existingMeter.pendingRelayCommand || existingMeter.relayState,
+        confirmedRelayState: existingMeter.relayState,
+        pendingRelayCommand: existingMeter.pendingRelayCommand,
+        relayCommandUpdatedAt: now,
+        updatedAt: now,
+        meter: existingMeter,
+      });
+    }
+
+    // STRICT AUTHENTICATION: API Key MUST be provided and MUST match for telemetry ingestion
     const incomingApiKey = ((req.headers['x-api-key'] as string) || payload.apiKey || '').trim();
     if (!incomingApiKey) {
       return sendResponse(res, 401, {
@@ -959,23 +1039,6 @@ export default async function handler(req: any, res: any) {
       return sendResponse(res, 401, {
         success: false,
         error: `Authentication failed: Invalid API key for meter '${meterId}'. Verify your key in Dashboard > Settings.`,
-      });
-    }
-
-    // Check if this is a remote relay toggle command
-    if (payload.action === 'relay_toggle' || (payload.relayState && payload.voltage === undefined && payload.current === undefined)) {
-      if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
-        return sendResponse(res, 400, { success: false, error: "relayState must be 'ON' or 'OFF'" });
-      }
-      existingMeter.relayState = payload.relayState;
-      existingMeter.updatedAt = now;
-      globalMeters.set(meterId, existingMeter);
-
-      return sendResponse(res, 200, {
-        success: true,
-        meterId,
-        relayState: existingMeter.relayState,
-        updatedAt: now,
       });
     }
 
@@ -1076,13 +1139,13 @@ export default async function handler(req: any, res: any) {
       frequency = Math.round(parsedF * 100) / 100;
     }
 
-    // Relay state validation
-    let relayState = existingMeter.relayState;
+    // Relay state validation & Pending Command Lock reconciliation
+    let reportedRelayState = existingMeter.relayState;
     if (payload.relayState !== undefined) {
       if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
         return sendResponse(res, 400, { success: false, error: `'relayState' must be 'ON' or 'OFF'` });
       }
-      relayState = payload.relayState;
+      reportedRelayState = payload.relayState;
     }
 
     // Energy validation (Mandatory: the meter is the sole source of energy accumulation)
@@ -1108,6 +1171,7 @@ export default async function handler(req: any, res: any) {
 
     const priorPeak = Math.max(Number(existingMeter.peakActivePower) || 0, Number(existingMeter.activePower) || 0);
 
+    // Evaluate anomalies against the physical relay state reported by the meter in this sample
     const sample: TelemetrySample = {
       voltage,
       current,
@@ -1117,13 +1181,27 @@ export default async function handler(req: any, res: any) {
       powerFactor,
       frequency,
       energy,
-      relayState,
+      relayState: reportedRelayState,
       peakActivePower: priorPeak,
       previousSample: prevSample,
     };
 
     const allAnomalies = analyzeAllTelemetryAnomalies(sample);
     const anomalyResult = analyzeTelemetryForAnomalies(sample);
+
+    // Reconcile Pending Relay Command Lock:
+    if (existingMeter.pendingRelayCommand === 'ON' || existingMeter.pendingRelayCommand === 'OFF') {
+      if (payload.relayState === undefined || reportedRelayState === existingMeter.pendingRelayCommand) {
+        existingMeter.relayState = existingMeter.pendingRelayCommand;
+        existingMeter.pendingRelayCommand = null;
+      } else {
+        existingMeter.relayState = reportedRelayState;
+      }
+    } else {
+      existingMeter.relayState = reportedRelayState;
+    }
+
+    const commandedRelayState = existingMeter.pendingRelayCommand || existingMeter.relayState;
 
     existingMeter.voltage = voltage;
     existingMeter.current = current;
@@ -1134,7 +1212,6 @@ export default async function handler(req: any, res: any) {
     existingMeter.powerFactor = powerFactor;
     existingMeter.frequency = frequency;
     existingMeter.totalEnergy = energy;
-    existingMeter.relayState = relayState;
     existingMeter.status = 'ONLINE';
     existingMeter.lastHeartbeat = now;
     existingMeter.updatedAt = now;
@@ -1160,7 +1237,7 @@ export default async function handler(req: any, res: any) {
       powerFactor,
       frequency,
       energy,
-      relayState: existingMeter.relayState,
+      relayState: reportedRelayState,
       hasAnomaly: anomalyResult.hasAnomaly,
       timestamp: now,
     };
@@ -1211,7 +1288,7 @@ export default async function handler(req: any, res: any) {
     const compactResponse: Record<string, any> = {
       success: true,
       meterId,
-      relayState: existingMeter.relayState,
+      relayState: commandedRelayState,
       anomalyDetected: anomalyResult.hasAnomaly,
     };
 

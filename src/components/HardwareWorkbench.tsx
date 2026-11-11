@@ -40,10 +40,15 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
   const [simPF, setSimPF] = useState(0.97);
   const [simFreq, setSimFreq] = useState(50.02);
   const [simEnergy, setSimEnergy] = useState<number>(() => Number(meter.totalEnergy) || 0);
+  const [simRelayState, setSimRelayState] = useState<'ON' | 'OFF'>(() => meter.relayState || 'ON');
 
   React.useEffect(() => {
     setSimEnergy(Number(meter.totalEnergy) || 0);
   }, [meter.meterId, meter.totalEnergy]);
+
+  React.useEffect(() => {
+    setSimRelayState(meter.relayState || 'ON');
+  }, [meter.meterId]);
 
   // Firmware customizer
   const [wifiSsid, setWifiSsid] = useState('Home_Solar_Grid');
@@ -119,7 +124,7 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
       powerFactor: simPF,
       frequency: simFreq,
       energy: reportedEnergy,
-      relayState: meter.relayState,
+      relayState: simRelayState,
       latitude: meter.latitude,
       longitude: meter.longitude,
       address: meter.address,
@@ -127,7 +132,7 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
 
     const timestamp = new Date().toLocaleTimeString();
     setSerialLogs(prev => [
-      `[${timestamp}] TX -> POST /api/telemetry/ingest [V=${simVoltage}V, I=${simCurrent}A, P=${activePower}W, S=${apparentPower}VA, E=${reportedEnergy}kWh, PF=${simPF}]`,
+      `[${timestamp}] TX -> POST /api/telemetry/ingest [V=${simVoltage}V, I=${simCurrent}A, P=${activePower}W, S=${apparentPower}VA, E=${reportedEnergy}kWh, Relay=${simRelayState}]`,
       ...prev.slice(0, 15),
     ]);
 
@@ -137,10 +142,27 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
       const anomalySummary = Array.isArray(res?.anomalies) && res.anomalies.length > 0
         ? res.anomalies.map((a: any) => a.title || a.type).join(' | ')
         : (res?.anomaly?.title || 'Anomaly Detected');
-      setSerialLogs(prev => [
-        `[${timestamp}] RX <- HTTP 200 OK | RelayCmd: ${res?.relayState || meter.relayState} | ${isAnomaly ? 'ANOMALY FLAGGED: ' + anomalySummary : 'Status: Normal'}`,
-        ...prev.slice(0, 15),
-      ]);
+      const serverRelayCmd: 'ON' | 'OFF' = res?.relayState === 'OFF' ? 'OFF' : 'ON';
+
+      setSerialLogs(prev => {
+        const logs = [
+          `[${timestamp}] RX <- HTTP 200 OK | RelayCmd: ${serverRelayCmd} | ${isAnomaly ? 'ANOMALY FLAGGED: ' + anomalySummary : 'Status: Normal'}`,
+        ];
+        if (serverRelayCmd !== simRelayState) {
+          logs.unshift(
+            `[${timestamp}] >> [RELAY] Remote command received in response: Switching physical relay to ${serverRelayCmd} (next POST will confirm ${serverRelayCmd})`
+          );
+        }
+        return [...logs, ...prev.slice(0, 15)];
+      });
+
+      // Mirror physical ESP32 firmware: apply the server's relayState command from the POST response for the next cycle
+      if (serverRelayCmd !== simRelayState) {
+        setSimRelayState(serverRelayCmd);
+        if (serverRelayCmd === 'OFF') {
+          setSimCurrent(0.0);
+        }
+      }
     } catch (err: any) {
       setSerialLogs(prev => [
         `[${timestamp}] RX <- Error transmitting: ${err.message}`,
@@ -319,12 +341,23 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
                   <div className="text-[10px] text-rose-200 font-mono mt-0.5">174.0V • Critical Brownout</div>
                 </button>
 
-                <div className="p-3 rounded-xl bg-[#112327] border border-white/15 text-left flex flex-col justify-center">
-                  <div className="text-[11px] text-white/75 font-medium">Relay Output</div>
-                  <div className={`text-xs font-bold font-mono ${meter.relayState === 'ON' ? 'text-emerald-300' : 'text-rose-400'}`}>
-                    {meter.relayState === 'ON' ? 'ENERGIZED (ON)' : 'TRIPPED (OFF)'}
+                <button
+                  type="button"
+                  onClick={() => setSimRelayState(prev => (prev === 'ON' ? 'OFF' : 'ON'))}
+                  className="p-3 rounded-xl bg-[#112327] hover:bg-[#1a2d31] border border-white/20 text-left flex flex-col justify-center transition-colors cursor-pointer"
+                >
+                  <div className="text-[10px] text-white/75 font-medium flex items-center justify-between">
+                    <span>MCU Relay Pin (Click)</span>
+                    {meter.pendingRelayCommand && meter.pendingRelayCommand !== meter.relayState && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-400 text-[#112327] font-black">
+                        CMD: {meter.pendingRelayCommand}
+                      </span>
+                    )}
                   </div>
-                </div>
+                  <div className={`text-xs font-bold font-mono mt-0.5 ${simRelayState === 'ON' ? 'text-emerald-300' : 'text-rose-400'}`}>
+                    {simRelayState === 'ON' ? 'PIN HIGH (ON)' : 'PIN LOW (OFF)'}
+                  </div>
+                </button>
               </div>
             </div>
 
