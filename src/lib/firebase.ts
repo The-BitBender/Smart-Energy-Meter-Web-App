@@ -3,11 +3,14 @@ import {
   getAuth, 
   GoogleAuthProvider, 
   signInWithPopup, 
+  reauthenticateWithPopup,
   signOut,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
-  signInAnonymously
+  signInAnonymously,
+  onAuthStateChanged,
+  UserCredential
 } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -15,10 +18,68 @@ import firebaseConfig from '../../firebase-applet-config.json';
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
 
-// CRITICAL: Must pass firebaseConfig.firestoreDatabaseId as required by Firebase skill
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// CRITICAL: Must pass firestoreDatabaseId as required by Firebase skill
+const firestoreDatabaseId =
+  (firebaseConfig as { firestoreDatabaseId?: string }).firestoreDatabaseId ||
+  'ai-studio-33e80a9d-c379-4691-ae33-800b1ee682eb';
+export const db = getFirestore(app, firestoreDatabaseId);
 export const auth = getAuth(app);
+
+export const WORKSPACE_SCOPES = [
+  'https://www.googleapis.com/auth/documents',
+] as const;
+
 export const googleProvider = new GoogleAuthProvider();
+WORKSPACE_SCOPES.forEach((scope) => {
+  googleProvider.addScope(scope);
+});
+
+// In-memory cache ONLY for Google Workspace OAuth access token (never stored in localStorage/sessionStorage)
+let cachedWorkspaceAccessToken: string | null = null;
+
+onAuthStateChanged(auth, (user) => {
+  if (!user) {
+    cachedWorkspaceAccessToken = null;
+  }
+});
+
+export function captureGoogleAccessTokenFromCredential(result: UserCredential): string | null {
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  if (credential?.accessToken) {
+    cachedWorkspaceAccessToken = credential.accessToken;
+    return credential.accessToken;
+  }
+  return null;
+}
+
+export function getWorkspaceAccessToken(): string | null {
+  return cachedWorkspaceAccessToken;
+}
+
+export function clearWorkspaceAccessToken(): void {
+  cachedWorkspaceAccessToken = null;
+}
+
+export async function authorizeGoogleDocsAccess(): Promise<string> {
+  const docsProvider = new GoogleAuthProvider();
+  WORKSPACE_SCOPES.forEach((scope) => docsProvider.addScope(scope));
+  docsProvider.setCustomParameters({ prompt: 'consent select_account' });
+
+  const currentUser = auth.currentUser;
+  const isGoogleUser = Boolean(
+    currentUser && currentUser.providerData?.some((p) => p.providerId === 'google.com')
+  );
+
+  const result = isGoogleUser && currentUser
+    ? await reauthenticateWithPopup(currentUser, docsProvider)
+    : await signInWithPopup(auth, docsProvider);
+
+  const token = captureGoogleAccessTokenFromCredential(result);
+  if (!token) {
+    throw new Error('Google Docs access permission was not returned. Please grant Google Docs access to continue.');
+  }
+  return token;
+}
 
 export enum OperationType {
   CREATE = 'create',

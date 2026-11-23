@@ -48,6 +48,7 @@ export interface MeterData {
   powerFactor: number;
   frequency: number;
   totalEnergy: number;
+  lidOpen?: boolean;
   hasAnomaly: boolean;
   anomalyType: string;
   anomalySeverity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
@@ -126,6 +127,7 @@ async function fetchMeterFromFirestore(meterId: string): Promise<MeterData | nul
       powerFactor: Number(data.powerFactor) || 0.0,
       frequency: Number(data.frequency) || 0.0,
       totalEnergy: Number(data.totalEnergy) || 0.0,
+      lidOpen: Boolean(data.lidOpen),
       hasAnomaly: Boolean(data.hasAnomaly),
       anomalyType: data.anomalyType || 'NONE',
       anomalySeverity: (data.anomalySeverity || 'LOW') as any,
@@ -409,13 +411,33 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], async (req, res) => {
     }
     const energy = Math.round(parsedE * 1000) / 1000;
 
+    let lidOpen = false;
+    if (payload.lidOpen !== undefined && payload.lidOpen !== null) {
+      if (typeof payload.lidOpen === 'boolean') {
+        lidOpen = payload.lidOpen;
+      } else if (typeof payload.lidOpen === 'string' && (payload.lidOpen.toLowerCase() === 'true' || payload.lidOpen.toLowerCase() === 'false')) {
+        lidOpen = payload.lidOpen.toLowerCase() === 'true';
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: `Validation failed: 'lidOpen' must be a boolean (true or false), received: ${payload.lidOpen}`,
+        });
+      }
+    }
+
     let hasAnomaly = false;
     let anomalyType = 'NONE';
     let anomalySeverity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'LOW';
     let anomalyDesc = 'Operating normally';
     let recommendation = 'Routine periodic monitoring active.';
 
-    if (reportedRelayState === 'OFF' && (current > 0.8 || Math.abs(activePower) > 100)) {
+    if (lidOpen === true) {
+      hasAnomaly = true;
+      anomalyType = 'LID_OPEN_TAMPER';
+      anomalySeverity = 'CRITICAL';
+      anomalyDesc = 'Physical limit switch reported meter enclosure lid OPEN (lidOpen: true). Unauthorized access to internal meter terminals detected.';
+      recommendation = 'Dispatch field technician to inspect physical enclosure seals and reseal the meter cover.';
+    } else if (reportedRelayState === 'OFF' && (current > 0.8 || Math.abs(activePower) > 100)) {
       hasAnomaly = true;
       anomalyType = 'UNMETERED_BYPASS';
       anomalySeverity = 'CRITICAL';
@@ -466,17 +488,38 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], async (req, res) => {
     }
 
     if (meter.pendingRelayCommand === 'ON' || meter.pendingRelayCommand === 'OFF') {
-      if (payload.relayState === undefined || reportedRelayState === meter.pendingRelayCommand) {
-        meter.relayState = meter.pendingRelayCommand;
-        meter.pendingRelayCommand = null;
-      } else {
-        meter.relayState = reportedRelayState;
-      }
+      meter.relayState = meter.pendingRelayCommand;
+      meter.pendingRelayCommand = null;
+      meter.relayCommandUpdatedAt = now;
     } else {
       meter.relayState = reportedRelayState;
     }
 
-    const commandedRelayState = meter.pendingRelayCommand || meter.relayState;
+    const commandedRelayState = meter.relayState;
+
+    let parsedLatitude: number | undefined;
+    if (payload.latitude !== undefined && payload.latitude !== null && payload.latitude !== '') {
+      const lat = Number(payload.latitude);
+      if (!Number.isFinite(lat) || isNaN(lat) || lat < -90 || lat > 90) {
+        return res.status(400).json({
+          success: false,
+          error: `Validation failed: 'latitude' (${payload.latitude}) must be a valid number between -90 and 90`,
+        });
+      }
+      parsedLatitude = lat;
+    }
+
+    let parsedLongitude: number | undefined;
+    if (payload.longitude !== undefined && payload.longitude !== null && payload.longitude !== '') {
+      const lng = Number(payload.longitude);
+      if (!Number.isFinite(lng) || isNaN(lng) || lng < -180 || lng > 180) {
+        return res.status(400).json({
+          success: false,
+          error: `Validation failed: 'longitude' (${payload.longitude}) must be a valid number between -180 and 180`,
+        });
+      }
+      parsedLongitude = lng;
+    }
 
     meter.voltage = voltage;
     meter.current = current;
@@ -486,9 +529,21 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], async (req, res) => {
     meter.powerFactor = powerFactor;
     meter.frequency = frequency;
     meter.totalEnergy = energy;
+    meter.lidOpen = lidOpen;
     meter.status = 'ONLINE';
     meter.lastHeartbeat = now;
     meter.updatedAt = now;
+
+    if (parsedLatitude !== undefined) {
+      meter.latitude = parsedLatitude;
+    }
+    if (parsedLongitude !== undefined) {
+      meter.longitude = parsedLongitude;
+    }
+    if (payload.address && typeof payload.address === 'string' && payload.address.trim()) {
+      meter.address = payload.address.trim();
+    }
+
     meter.hasAnomaly = hasAnomaly;
     meter.anomalyType = anomalyType;
     meter.anomalySeverity = anomalySeverity;
@@ -510,6 +565,7 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], async (req, res) => {
       frequency,
       energy,
       relayState: reportedRelayState,
+      lidOpen,
       hasAnomaly,
       timestamp: now,
     };
@@ -538,6 +594,7 @@ app.post(['/api/telemetry/ingest', '/telemetry/ingest'], async (req, res) => {
           apparentPower,
           reactivePower,
           energy,
+          lidOpen,
           timestamp: now,
         },
         createdAt: now,
@@ -738,6 +795,7 @@ app.post(['/api/meters', '/meters'], (req, res) => {
       powerFactor: 0.0,
       frequency: 0.0,
       totalEnergy: 0.0,
+      lidOpen: false,
       hasAnomaly: false,
       anomalyType: 'NONE',
       anomalySeverity: 'LOW',

@@ -6,7 +6,8 @@ import {
   updateProfile,
   signInAnonymously,
   auth, 
-  googleProvider 
+  googleProvider,
+  captureGoogleAccessTokenFromCredential
 } from '../lib/firebase';
 import { 
   Zap, 
@@ -51,6 +52,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
     setLoading(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
+      captureGoogleAccessTokenFromCredential(result);
       // If user was newly created in this login
       const isNew = result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
       onAuthSuccess(isNew);

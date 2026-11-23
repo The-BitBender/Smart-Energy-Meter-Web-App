@@ -61,7 +61,7 @@ export const AnomalyBanner: React.FC<AnomalyBannerProps> = ({
               {meter.anomalyDescription}
             </p>
 
-            <div className="flex items-center space-x-4 mt-2 text-xs font-mono text-white/80">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs font-mono text-white/80">
               <span>Telemetry Snapshot: <strong className="text-white">{meter.voltage.toFixed(1)}V</strong></span>
               <span>•</span>
               <span><strong className="text-white">{meter.current.toFixed(2)}A</strong></span>
@@ -69,6 +69,12 @@ export const AnomalyBanner: React.FC<AnomalyBannerProps> = ({
               <span><strong className="text-white">{meter.activePower.toFixed(0)}W</strong></span>
               <span>•</span>
               <span>PF: <strong className="text-white">{meter.powerFactor.toFixed(2)}</strong></span>
+              {meter.lidOpen && (
+                <>
+                  <span>•</span>
+                  <span className="text-rose-200 font-black">LID: OPEN (TAMPER)</span>
+                </>
+              )}
             </div>
           </div>
         </div>

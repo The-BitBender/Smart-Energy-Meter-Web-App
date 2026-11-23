@@ -105,6 +105,7 @@ export async function fetchMeterFromFirestore(meterId: string): Promise<Meter | 
       powerFactor: Number(data.powerFactor) || 0.0,
       frequency: Number(data.frequency) || 0.0,
       totalEnergy: Number(data.totalEnergy) || 0.0,
+      lidOpen: Boolean(data.lidOpen),
       hasAnomaly: Boolean(data.hasAnomaly),
       anomalyType: (data.anomalyType || 'NONE') as any,
       anomalySeverity: (data.anomalySeverity || 'LOW') as any,
@@ -112,6 +113,36 @@ export async function fetchMeterFromFirestore(meterId: string): Promise<Meter | 
       createdAt: data.createdAt || new Date().toISOString(),
       updatedAt: data.updatedAt || new Date().toISOString(),
     };
+
+    const existing = activeMeters.get(cleanId);
+    if (existing) {
+      const existingCmdTime = new Date(existing.relayCommandUpdatedAt || 0).getTime() || 0;
+      const fsCmdTime = new Date(hydrated.relayCommandUpdatedAt || 0).getTime() || 0;
+      if (existingCmdTime > fsCmdTime) {
+        hydrated.relayState = existing.relayState;
+        hydrated.pendingRelayCommand = existing.pendingRelayCommand ?? null;
+        hydrated.relayCommandUpdatedAt = existing.relayCommandUpdatedAt ?? null;
+      }
+      const existingHb = new Date(existing.lastHeartbeat || 0).getTime() || 0;
+      const fsHb = new Date(hydrated.lastHeartbeat || 0).getTime() || 0;
+      if (existingHb > fsHb) {
+        hydrated.voltage = existing.voltage;
+        hydrated.current = existing.current;
+        hydrated.activePower = existing.activePower;
+        hydrated.peakActivePower = Math.max(hydrated.peakActivePower || 0, existing.peakActivePower || 0);
+        hydrated.apparentPower = existing.apparentPower;
+        hydrated.reactivePower = existing.reactivePower;
+        hydrated.powerFactor = existing.powerFactor;
+        hydrated.frequency = existing.frequency;
+        hydrated.totalEnergy = existing.totalEnergy;
+        hydrated.lidOpen = Boolean(existing.lidOpen);
+        hydrated.latitude = existing.latitude;
+        hydrated.longitude = existing.longitude;
+        hydrated.address = existing.address;
+        hydrated.lastHeartbeat = existing.lastHeartbeat;
+        hydrated.status = evaluateOnlineStatus(existing.lastHeartbeat);
+      }
+    }
 
     deletedMeterIds.delete(cleanId);
     activeMeters.set(cleanId, hydrated);
@@ -164,7 +195,7 @@ export async function persistMeterToFirestore(
   }
 }
 
-export async function ensureMeterLoaded(meterId: string): Promise<Meter | undefined> {
+export async function ensureMeterLoaded(meterId: string, syncFromFirestore = false): Promise<Meter | undefined> {
   if (!meterId) return undefined;
   const cleanId = meterId.trim();
   let meter = activeMeters.get(cleanId);
@@ -172,7 +203,7 @@ export async function ensureMeterLoaded(meterId: string): Promise<Meter | undefi
     loadMetersFromDisk();
     meter = activeMeters.get(cleanId);
   }
-  if (!meter) {
+  if (!meter || syncFromFirestore) {
     const fromFs = await fetchMeterFromFirestore(cleanId);
     if (fromFs) {
       meter = fromFs;
@@ -303,41 +334,46 @@ export function syncMeters(meters: Meter[], _replaceAll = false, deletedIds?: st
         const existingCmdTime = new Date(existing.relayCommandUpdatedAt || 0).getTime() || 0;
         const incomingCmdTime = new Date(m.relayCommandUpdatedAt || 0).getTime() || 0;
 
+        const existingPending =
+          existing.pendingRelayCommand === 'ON' || existing.pendingRelayCommand === 'OFF'
+            ? existing.pendingRelayCommand
+            : null;
+        const incomingPending =
+          m.pendingRelayCommand === 'ON' || m.pendingRelayCommand === 'OFF'
+            ? m.pendingRelayCommand
+            : null;
+
         let resolvedRelayState = telSrc.relayState || metaSrc.relayState || existing.relayState;
         let resolvedPendingRelayCommand: 'ON' | 'OFF' | null = null;
-        const resolvedRelayCommandUpdatedAt =
+        let resolvedRelayCommandUpdatedAt =
           incomingCmdTime >= existingCmdTime
             ? (m.relayCommandUpdatedAt ?? existing.relayCommandUpdatedAt ?? null)
             : (existing.relayCommandUpdatedAt ?? m.relayCommandUpdatedAt ?? null);
 
-        if (existingHb > incomingHb && existingHb >= incomingCmdTime) {
+        if (incomingCmdTime > existingCmdTime) {
+          resolvedRelayState = m.relayState || existing.relayState;
+          resolvedPendingRelayCommand =
+            incomingPending && incomingPending !== resolvedRelayState ? incomingPending : null;
+          resolvedRelayCommandUpdatedAt = m.relayCommandUpdatedAt ?? null;
+        } else if (existingCmdTime > incomingCmdTime) {
           resolvedRelayState = existing.relayState;
           resolvedPendingRelayCommand =
-            existing.pendingRelayCommand === 'ON' || existing.pendingRelayCommand === 'OFF'
-              ? existing.pendingRelayCommand
-              : null;
-        } else if (incomingHb > existingHb && incomingHb >= existingCmdTime) {
-          resolvedRelayState = m.relayState || existing.relayState;
-          if (m.pendingRelayCommand === 'ON' || m.pendingRelayCommand === 'OFF') {
-            resolvedPendingRelayCommand = m.pendingRelayCommand !== resolvedRelayState ? m.pendingRelayCommand : null;
-          } else if (existing.pendingRelayCommand === 'ON' || existing.pendingRelayCommand === 'OFF') {
-            resolvedPendingRelayCommand =
-              resolvedRelayState === existing.pendingRelayCommand ? null : existing.pendingRelayCommand;
-          }
-        } else if (incomingCmdTime >= existingCmdTime) {
-          resolvedRelayState = m.relayState || existing.relayState;
-          resolvedPendingRelayCommand =
-            (m.pendingRelayCommand === 'ON' || m.pendingRelayCommand === 'OFF') &&
-            m.pendingRelayCommand !== resolvedRelayState
-              ? m.pendingRelayCommand
-              : null;
+            existingPending && existingPending !== resolvedRelayState ? existingPending : null;
+          resolvedRelayCommandUpdatedAt = existing.relayCommandUpdatedAt ?? null;
         } else {
-          resolvedRelayState = existing.relayState;
-          resolvedPendingRelayCommand =
-            (existing.pendingRelayCommand === 'ON' || existing.pendingRelayCommand === 'OFF') &&
-            existing.pendingRelayCommand !== resolvedRelayState
-              ? existing.pendingRelayCommand
-              : null;
+          const activePending = incomingPending || existingPending;
+          if (activePending) {
+            if (!incomingPending || !existingPending) {
+              resolvedRelayState = activePending;
+              resolvedPendingRelayCommand = null;
+            } else {
+              resolvedRelayState = existing.relayState;
+              resolvedPendingRelayCommand = activePending;
+            }
+          } else {
+            resolvedRelayState = telSrc.relayState || metaSrc.relayState || existing.relayState;
+            resolvedPendingRelayCommand = null;
+          }
         }
 
         const bestHeartbeat = telSrc.lastHeartbeat || existing.lastHeartbeat || m.lastHeartbeat;
@@ -359,6 +395,7 @@ export function syncMeters(meters: Meter[], _replaceAll = false, deletedIds?: st
           powerFactor: telSrc.powerFactor,
           frequency: telSrc.frequency,
           totalEnergy: telSrc.totalEnergy,
+          lidOpen: Boolean(telSrc.lidOpen),
           lastHeartbeat: bestHeartbeat,
           hasAnomaly,
           anomalyType,
@@ -526,6 +563,7 @@ export interface IngestPayload {
   frequency?: number | string;
   energy?: number | string;
   relayState?: RelayState;
+  lidOpen?: boolean | string;
   latitude?: number | string;
   longitude?: number | string;
   address?: string;
@@ -614,8 +652,8 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
 
   const meterId = rawMeterId.trim();
 
-  // 1. Strict Meter Existence Check - Hydrate from memory, disk, or Firestore on cold start
-  const meter = await ensureMeterLoaded(meterId);
+  // 1. Strict Meter Existence Check - Hydrate and sync from Firestore so pending commands are always current
+  const meter = await ensureMeterLoaded(meterId, true);
 
   if (!meter) {
     throw new IngestionError(
@@ -624,7 +662,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     );
   }
 
-  // Handle pure relay command from Web Dashboard (locks pendingRelayCommand until meter confirms)
+  // Handle pure relay command from Web Dashboard (locks pendingRelayCommand until meter confirms on next telemetry ingest)
   if (payload.action === 'relay_toggle' && payload.relayState) {
     if (payload.relayState !== 'ON' && payload.relayState !== 'OFF') {
       throw new IngestionError(400, "Validation failed: 'relayState' must be 'ON' or 'OFF'");
@@ -639,7 +677,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     meter.updatedAt = nowCmd;
     activeMeters.set(meterId, meter);
     saveMetersToDisk();
-    persistMeterToFirestore(meter).catch(() => {});
+    await persistMeterToFirestore(meter).catch(() => {});
     return {
       success: true,
       meterId,
@@ -787,6 +825,18 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
   }
   const energy = Math.round(parsedE * 1000) / 1000;
 
+  // Lid Open (Limit Switch Tamper Sensor) validation
+  let lidOpen = false;
+  if (payload.lidOpen !== undefined && payload.lidOpen !== null) {
+    if (typeof payload.lidOpen === 'boolean') {
+      lidOpen = payload.lidOpen;
+    } else if (typeof payload.lidOpen === 'string' && (payload.lidOpen.toLowerCase() === 'true' || payload.lidOpen.toLowerCase() === 'false')) {
+      lidOpen = payload.lidOpen.toLowerCase() === 'true';
+    } else {
+      throw new IngestionError(400, `Validation failed: 'lidOpen' must be a boolean (true or false), received: ${payload.lidOpen}`);
+    }
+  }
+
   const now = new Date().toISOString();
 
   const prevSample = {
@@ -810,6 +860,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     frequency,
     energy,
     relayState: reportedRelayState,
+    lidOpen,
     peakActivePower: priorPeak,
     previousSample: prevSample,
   };
@@ -819,20 +870,35 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
   const anomalyResult = analyzeTelemetryForAnomalies(sample);
 
   // Reconcile Pending Relay Command Lock:
-  // If a pending command is locked, only clear it when the meter's reportedRelayState matches the target command!
+  // On the first telemetry ingest after a command is queued, deliver the command in the response
+  // and immediately transition the meter's confirmed relayState to the commanded state.
   if (meter.pendingRelayCommand === 'ON' || meter.pendingRelayCommand === 'OFF') {
-    if (payload.relayState === undefined || reportedRelayState === meter.pendingRelayCommand) {
-      meter.relayState = meter.pendingRelayCommand;
-      meter.pendingRelayCommand = null;
-    } else {
-      // Meter is still reporting its prior physical state; keep pendingRelayCommand locked so the HTTP response commands the switch
-      meter.relayState = reportedRelayState;
-    }
+    meter.relayState = meter.pendingRelayCommand;
+    meter.pendingRelayCommand = null;
+    meter.relayCommandUpdatedAt = now;
   } else {
     meter.relayState = reportedRelayState;
   }
 
-  const commandedRelayState = meter.pendingRelayCommand || meter.relayState;
+  const commandedRelayState = meter.relayState;
+
+  let parsedLatitude: number | undefined;
+  if (payload.latitude !== undefined && payload.latitude !== null && payload.latitude !== '') {
+    const lat = Number(payload.latitude);
+    if (!Number.isFinite(lat) || isNaN(lat) || lat < -90 || lat > 90) {
+      throw new IngestionError(400, `Validation failed: 'latitude' (${payload.latitude}) must be a valid number between -90 and 90`);
+    }
+    parsedLatitude = lat;
+  }
+
+  let parsedLongitude: number | undefined;
+  if (payload.longitude !== undefined && payload.longitude !== null && payload.longitude !== '') {
+    const lng = Number(payload.longitude);
+    if (!Number.isFinite(lng) || isNaN(lng) || lng < -180 || lng > 180) {
+      throw new IngestionError(400, `Validation failed: 'longitude' (${payload.longitude}) must be a valid number between -180 and 180`);
+    }
+    parsedLongitude = lng;
+  }
 
   // Update Existing Meter (and update all-time peak active power if current activePower is higher)
   meter.voltage = voltage;
@@ -844,17 +910,18 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
   meter.powerFactor = powerFactor;
   meter.frequency = frequency;
   meter.totalEnergy = energy;
+  meter.lidOpen = lidOpen;
   meter.status = 'ONLINE';
   meter.lastHeartbeat = now;
   meter.updatedAt = now;
 
-  if (payload.latitude !== undefined && Number.isFinite(Number(payload.latitude))) {
-    meter.latitude = Number(payload.latitude);
+  if (parsedLatitude !== undefined) {
+    meter.latitude = parsedLatitude;
   }
-  if (payload.longitude !== undefined && Number.isFinite(Number(payload.longitude))) {
-    meter.longitude = Number(payload.longitude);
+  if (parsedLongitude !== undefined) {
+    meter.longitude = parsedLongitude;
   }
-  if (payload.address && typeof payload.address === 'string') {
+  if (payload.address && typeof payload.address === 'string' && payload.address.trim()) {
     meter.address = payload.address.trim();
   }
 
@@ -881,6 +948,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
     frequency,
     energy,
     relayState: reportedRelayState,
+    lidOpen,
     hasAnomaly: anomalyResult.hasAnomaly,
     timestamp: now,
   };
@@ -916,6 +984,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
           apparentPower,
           reactivePower,
           energy,
+          lidOpen,
           timestamp: now,
         },
         createdAt: new Date(baseMs + idx).toISOString(),
@@ -937,7 +1006,7 @@ export async function processTelemetryIngest(payload: IngestPayload, headerApiKe
   }
 
   // Persist updated meter state, telemetry log, and all anomaly alerts to Firestore
-  persistMeterToFirestore(meter, log, anomalyAlerts).catch(() => {});
+  await persistMeterToFirestore(meter, log, anomalyAlerts).catch(() => {});
 
   const compactResponse: Record<string, any> = {
     success: true,

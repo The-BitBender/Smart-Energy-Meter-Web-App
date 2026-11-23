@@ -10,6 +10,7 @@ export interface TelemetrySample {
   frequency: number;
   energy: number;
   relayState: 'ON' | 'OFF';
+  lidOpen?: boolean;
   peakActivePower?: number;
   previousSample?: {
     voltage: number;
@@ -32,8 +33,22 @@ const SEVERITY_RANK: Record<AnomalySeverity, number> = {
  * returning EVERY anomaly detected in that single reading so none are masked by early returns.
  */
 export function analyzeAllTelemetryAnomalies(sample: TelemetrySample): AnomalyDetectionResult[] {
-  const { voltage, current, activePower, powerFactor, frequency, relayState, peakActivePower, previousSample } = sample;
+  const { voltage, current, activePower, powerFactor, frequency, relayState, lidOpen, peakActivePower, previousSample } = sample;
   const detected: AnomalyDetectionResult[] = [];
+
+  // 0a. Physical Enclosure Lid Open Tamper (Limit Switch Triggered)
+  if (lidOpen === true) {
+    detected.push({
+      hasAnomaly: true,
+      type: 'LID_OPEN_TAMPER',
+      severity: 'CRITICAL',
+      title: 'Meter Enclosure Lid Opened (Limit Switch Triggered)',
+      description:
+        'Physical limit switch reported meter enclosure lid OPEN (lidOpen: true). Unauthorized physical access to internal meter terminals, CT coils, or relay wiring detected.',
+      recommendation:
+        'Dispatch field technician immediately to inspect physical enclosure seals, verify terminal wiring integrity, and close/reseal the meter cover.',
+    });
+  }
 
   // 0. Unauthorized current while relay is commanded OFF
   if (relayState === 'OFF') {

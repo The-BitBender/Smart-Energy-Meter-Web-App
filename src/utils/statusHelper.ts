@@ -109,6 +109,7 @@ export function isTelemetryLogAnomalous(log: TelemetryLog): boolean {
   const p = Number(log.activePower) || 0;
   const f = Number(log.frequency) || 0;
 
+  if (log.lidOpen === true) return true;
   if (log.relayState === 'OFF' && (i > 0.8 || Math.abs(p) > 100)) return true;
   if (v >= 242 || (v > 0 && v < 207)) return true;
   if (i > 42 || p > 9500) return true;
@@ -274,6 +275,7 @@ export function reconcileMeter(existing: Meter | null | undefined, incoming: Met
     powerFactor: telemetrySource.powerFactor,
     frequency: telemetrySource.frequency,
     totalEnergy: telemetrySource.totalEnergy,
+    lidOpen: Boolean(telemetrySource.lidOpen),
     lastHeartbeat: bestHeartbeat,
     hasAnomaly,
     anomalyType,

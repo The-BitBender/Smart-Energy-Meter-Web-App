@@ -14,7 +14,8 @@ export type AnomalyType =
   | 'FREQUENCY_INSTABILITY'
   | 'UNDERVOLTAGE'
   | 'OVERVOLTAGE'
-  | 'PEAK_POWER_EXCEEDED';
+  | 'PEAK_POWER_EXCEEDED'
+  | 'LID_OPEN_TAMPER';
 
 export interface MeterLocation {
   latitude: number;
@@ -46,6 +47,7 @@ export interface Meter {
   powerFactor: number; // cos phi (0.0 to 1.0)
   frequency: number; // Hertz (Hz)
   totalEnergy: number; // Kilowatt-hours (kWh)
+  lidOpen?: boolean; // Limit switch enclosure tamper sensor (true = lid open)
   // Anomaly State
   hasAnomaly: boolean;
   anomalyType: AnomalyType;
@@ -69,6 +71,7 @@ export interface TelemetryLog {
   frequency: number;
   energy: number;
   relayState: RelayState;
+  lidOpen?: boolean;
   hasAnomaly: boolean;
   timestamp: string;
 }
@@ -89,6 +92,7 @@ export interface AnomalyAlert {
     apparentPower?: number;
     reactivePower: number;
     energy: number;
+    lidOpen?: boolean;
     timestamp: string;
   };
   createdAt: string;

@@ -41,6 +41,7 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
   const [simFreq, setSimFreq] = useState(50.02);
   const [simEnergy, setSimEnergy] = useState<number>(() => Number(meter.totalEnergy) || 0);
   const [simRelayState, setSimRelayState] = useState<'ON' | 'OFF'>(() => meter.relayState || 'ON');
+  const [simLidOpen, setSimLidOpen] = useState<boolean>(() => Boolean(meter.lidOpen));
 
   React.useEffect(() => {
     setSimEnergy(Number(meter.totalEnergy) || 0);
@@ -48,6 +49,7 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
 
   React.useEffect(() => {
     setSimRelayState(meter.relayState || 'ON');
+    setSimLidOpen(Boolean(meter.lidOpen));
   }, [meter.meterId]);
 
   // Firmware customizer
@@ -125,6 +127,7 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
       frequency: simFreq,
       energy: reportedEnergy,
       relayState: simRelayState,
+      lidOpen: simLidOpen,
       latitude: meter.latitude,
       longitude: meter.longitude,
       address: meter.address,
@@ -132,7 +135,7 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
 
     const timestamp = new Date().toLocaleTimeString();
     setSerialLogs(prev => [
-      `[${timestamp}] TX -> POST /api/telemetry/ingest [V=${simVoltage}V, I=${simCurrent}A, P=${activePower}W, S=${apparentPower}VA, E=${reportedEnergy}kWh, Relay=${simRelayState}]`,
+      `[${timestamp}] TX -> POST /api/telemetry/ingest [V=${simVoltage}V, I=${simCurrent}A, P=${activePower}W, S=${apparentPower}VA, E=${reportedEnergy}kWh, Relay=${simRelayState}, Lid=${simLidOpen ? 'OPEN' : 'CLOSED'}]`,
       ...prev.slice(0, 15),
     ]);
 
@@ -356,6 +359,28 @@ export const HardwareWorkbench: React.FC<HardwareWorkbenchProps> = ({
                   </div>
                   <div className={`text-xs font-bold font-mono mt-0.5 ${simRelayState === 'ON' ? 'text-emerald-300' : 'text-rose-400'}`}>
                     {simRelayState === 'ON' ? 'PIN HIGH (ON)' : 'PIN LOW (OFF)'}
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSimLidOpen(prev => !prev)}
+                  className={`p-3 rounded-xl border text-left flex flex-col justify-center transition-colors cursor-pointer ${
+                    simLidOpen
+                      ? 'bg-rose-950/80 hover:bg-rose-900 border-rose-400'
+                      : 'bg-[#112327] hover:bg-[#1a2d31] border-white/20'
+                  }`}
+                >
+                  <div className="text-[10px] text-white/75 font-medium flex items-center justify-between">
+                    <span>Lid Limit Switch (Click)</span>
+                    {simLidOpen && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-rose-500 text-white font-black">
+                        TAMPER
+                      </span>
+                    )}
+                  </div>
+                  <div className={`text-xs font-bold font-mono mt-0.5 ${simLidOpen ? 'text-rose-300' : 'text-emerald-300'}`}>
+                    {simLidOpen ? 'lidOpen: true (OPEN)' : 'lidOpen: false (SEALED)'}
                   </div>
                 </button>
               </div>

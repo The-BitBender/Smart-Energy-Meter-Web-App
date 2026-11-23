@@ -384,7 +384,11 @@ export default function App() {
               next.voltage === prev.voltage &&
               next.current === prev.current &&
               next.activePower === prev.activePower &&
-              next.totalEnergy === prev.totalEnergy
+              next.totalEnergy === prev.totalEnergy &&
+              next.lidOpen === prev.lidOpen &&
+              next.latitude === prev.latitude &&
+              next.longitude === prev.longitude &&
+              next.address === prev.address
             ) {
               return prev;
             }
@@ -400,30 +404,35 @@ export default function App() {
           // Authenticated Firestore real-time sync: ONLY write when a new heartbeat/reading or new log/alert arrives
           if (user && !deletedMeterIdsRef.current.has(meterId)) {
             try {
-              const incomingHb = latestMeterData.lastHeartbeat || latestMeterData.updatedAt || '';
-              const syncKey = `${incomingHb}|${latestMeterData.relayState}|${latestMeterData.pendingRelayCommand || 'NONE'}`;
+              const reconciledForSync = reconcileMeter(activeMeter, latestMeterData);
+              const incomingHb = reconciledForSync.lastHeartbeat || reconciledForSync.updatedAt || '';
+              const syncKey = `${incomingHb}|${reconciledForSync.relayState}|${reconciledForSync.pendingRelayCommand || 'NONE'}|${reconciledForSync.latitude}|${reconciledForSync.longitude}|${Boolean(reconciledForSync.lidOpen)}`;
               if (incomingHb && lastSyncedHeartbeatRef.current.get(meterId) !== syncKey) {
                 lastSyncedHeartbeatRef.current.set(meterId, syncKey);
                 await updateDoc(doc(db, 'meters', meterId), {
-                  voltage: latestMeterData.voltage,
-                  current: latestMeterData.current,
-                  activePower: latestMeterData.activePower,
-                  peakActivePower: Math.max(Number(latestMeterData.peakActivePower) || 0, Number(latestMeterData.activePower) || 0),
-                  apparentPower: latestMeterData.apparentPower !== undefined ? latestMeterData.apparentPower : Math.round(Math.abs((latestMeterData.voltage || 0) * (latestMeterData.current || 0)) * 10) / 10,
-                  reactivePower: latestMeterData.reactivePower,
-                  powerFactor: latestMeterData.powerFactor,
-                  frequency: latestMeterData.frequency,
-                  totalEnergy: latestMeterData.totalEnergy,
-                  relayState: latestMeterData.relayState,
-                  pendingRelayCommand: latestMeterData.pendingRelayCommand ?? null,
-                  relayCommandUpdatedAt: latestMeterData.relayCommandUpdatedAt ?? null,
-                  status: latestMeterData.status,
-                  lastHeartbeat: latestMeterData.lastHeartbeat,
-                  hasAnomaly: latestMeterData.hasAnomaly,
-                  anomalyType: latestMeterData.anomalyType,
-                  anomalySeverity: latestMeterData.anomalySeverity,
-                  anomalyDescription: latestMeterData.anomalyDescription,
-                  updatedAt: latestMeterData.updatedAt || new Date().toISOString(),
+                  voltage: reconciledForSync.voltage,
+                  current: reconciledForSync.current,
+                  activePower: reconciledForSync.activePower,
+                  peakActivePower: Math.max(Number(reconciledForSync.peakActivePower) || 0, Number(reconciledForSync.activePower) || 0),
+                  apparentPower: reconciledForSync.apparentPower !== undefined ? reconciledForSync.apparentPower : Math.round(Math.abs((reconciledForSync.voltage || 0) * (reconciledForSync.current || 0)) * 10) / 10,
+                  reactivePower: reconciledForSync.reactivePower,
+                  powerFactor: reconciledForSync.powerFactor,
+                  frequency: reconciledForSync.frequency,
+                  totalEnergy: reconciledForSync.totalEnergy,
+                  lidOpen: Boolean(reconciledForSync.lidOpen),
+                  latitude: reconciledForSync.latitude,
+                  longitude: reconciledForSync.longitude,
+                  address: reconciledForSync.address,
+                  relayState: reconciledForSync.relayState,
+                  pendingRelayCommand: reconciledForSync.pendingRelayCommand ?? null,
+                  relayCommandUpdatedAt: reconciledForSync.relayCommandUpdatedAt ?? null,
+                  status: reconciledForSync.status,
+                  lastHeartbeat: reconciledForSync.lastHeartbeat,
+                  hasAnomaly: reconciledForSync.hasAnomaly,
+                  anomalyType: reconciledForSync.anomalyType,
+                  anomalySeverity: reconciledForSync.anomalySeverity,
+                  anomalyDescription: reconciledForSync.anomalyDescription,
+                  updatedAt: reconciledForSync.updatedAt || new Date().toISOString(),
                 });
               }
 
@@ -731,6 +740,7 @@ export default function App() {
         powerFactor: 0.0,
         frequency: 0.0,
         totalEnergy: 0.0,
+        lidOpen: false,
         hasAnomaly: false,
         anomalyType: 'NONE',
         anomalySeverity: 'LOW',
